@@ -21,28 +21,28 @@ const SKILLS = [
 
 const PROJECTS = [
   {
-    title: "Personal Portfolio Webpage",
+    title: "Classification of Comminuted Bone Fracture Using Hybrid Deep Learning Model",
     description:
-      "A responsive self-introduction webpage created using HTML, CSS, JavaScript, and vibe coding with Claude.",
-    tech: ["HTML", "CSS", "JavaScript"],
+      "Developed a hybrid deep learning system to classify comminuted bone fractures from X-ray images.",
+    tech: ["Python","TensorFlow","Keras","OpenCV","Scikit-learn", "Pandas","NumPy","Matplotlib"],
     // TODO: replace with your real repository and live links
     github: "#",
     live: "#",
-    image: "https://placehold.co/400x220/0F172A/F8FAFC?text=Portfolio",
+    image: "assets/Detected Simple Fracture.png",
   },
   {
-    title: "[ACADEMIC OR PERSONAL PROJECT]",
-    description: "[SHORT PROJECT DESCRIPTION]",
-    tech: ["[TECHNOLOGIES USED]"],
+    title: "Cafeteria Management System",
+    description: "Designed and developed a cafeteria management system to streamline food ordering, menu management, and order processing. Implemented user authentication, role-based access, and database integration for efficient operations.",
+    tech: ["HTML","CSS","JavaScript","PHP","Laravel","MySQL","Bootstrap"],
     // TODO: replace with your real repository and live links
     github: "#",
     live: "#",
     image: "https://placehold.co/400x220/2563EB/F8FAFC?text=Project+2",
   },
   {
-    title: "[ACADEMIC OR PERSONAL PROJECT]",
-    description: "[SHORT PROJECT DESCRIPTION]",
-    tech: ["[TECHNOLOGIES USED]"],
+    title: "Text Classification using LSTM & CNN",
+    description: "Built and compared CNN and LSTM models for text classification. Applied text preprocessing, tokenization, embedding, and performance evaluation.",
+    tech: ["Python","TensorFlow","NLTK","Keras","Scikit-learn", "Pandas","NumPy","Matplotlib"],
     // TODO: replace with your real repository and live links
     github: "#",
     live: "#",
