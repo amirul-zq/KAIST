@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title> Portfolio </title>
+  <meta name="description" content="Personal introduction webpage of Amirul Alam — student, developer, and lifelong learner." />
+
+  <!-- Google Fonts: Poppins (headings) + Inter (body), with system fallbacks -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- ============ NAVIGATION BAR ============ -->
+  <header class="navbar" id="navbar">
+    <div class="container navbar__inner">
+      <a href="#hero" class="navbar__logo" aria-label="Go to top">_aamirul</a>
+
+      <nav class="navbar__nav" id="primaryNav" aria-label="Primary">
+        <ul class="navbar__links" id="navLinks">
+          <li><a href="#hero" class="nav-link" data-nav>Home</a></li>
+          <li><a href="#about" class="nav-link" data-nav>About</a></li>
+          <li><a href="#journey" class="nav-link" data-nav>Journey</a></li>
+          <li><a href="#education" class="nav-link" data-nav>Education</a></li>
+          <li><a href="#skills" class="nav-link" data-nav>Skills</a></li>
+          <li><a href="#projects" class="nav-link" data-nav>Projects</a></li>
+          <li><a href="#contact" class="nav-link" data-nav>Contact</a></li>
+        </ul>
+      </nav>
+
+      <button class="navbar__toggle" id="navToggle" aria-label="Open navigation menu" aria-expanded="false" aria-controls="navLinks">
+        <span class="navbar__toggle-bar"></span>
+        <span class="navbar__toggle-bar"></span>
+        <span class="navbar__toggle-bar"></span>
+      </button>
+    </div>
+  </header>
+
+  <main>
+
+    <!-- ============ 2. HERO SECTION ============ -->
+    <section id="hero" class="hero">
+      <div class="container hero__grid">
+        <div class="hero__text reveal">
+          <p class="hero__welcome">Hello, I am</p>
+          <h1 class="hero__name">AMIRUL ALAM</h1>
+          <p class="hero__title">Computer Science Student | Aspiring Software Developer | Machine Learning Enthusiast | Researcher</p>
+          <p class="hero__intro">
+            I am passionate about technology, continuous learning, and building practical
+            digital solutions that can create a positive impact.
+          </p>
+          <div class="hero__actions">
+            <a href="#about" class="btn btn--primary">Learn More About Me</a>
+            <a href="#contact" class="btn btn--outline">Contact Me</a>
+          </div>
+        </div>
+
+        <div class="hero__media reveal">
+          <div class="hero__blob" aria-hidden="true"></div>
+          <!-- Replace src below with your own photo: images/profile.jpg -->
+          <img
+            src="https://placehold.co/480x480/2563EB/F8FAFC?text=Your+Photo"
+            alt="Portrait placeholder for Amirul Alam"
+            class="hero__image"
+            width="480"
+            height="480"
+          />
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 3. ABOUT ME ============ -->
+    <section id="about" class="section">
+      <div class="container">
+        <p class="section__eyebrow reveal">About</p>
+        <h2 class="section__title reveal">About Me</h2>
+
+        <div class="about__grid">
+          <div class="about__text reveal">
+            <p>
+              I am a motivated student with a growing interest in software development,
+              technology, and problem-solving. I enjoy learning through practical projects
+              and exploring how digital tools can solve real-world challenges. I value
+              resilience, adaptability, responsibility, and continuous improvement.
+            </p>
+            <ul class="about__qualities">
+              <li>Resilient</li>
+              <li>Adaptable</li>
+              <li>Committed to growth</li>
+            </ul>
+          </div>
+
+          <div class="about__card card reveal">
+            <h3 class="about__card-title">Personal Info</h3>
+            <dl class="about__info-list">
+              <div class="about__info-row">
+                <dt>Name</dt>
+                <dd>Amirul Alam</dd>
+              </div>
+              <div class="about__info-row">
+                <dt>Location</dt>
+                <dd>Dhaka, Bangladesh</dd>
+              </div>
+              <div class="about__info-row">
+                <dt>Institution</dt>
+                <dd>University of Information Technology and Sciences</dd>
+              </div>
+              <div class="about__info-row">
+                <dt>Field of Study</dt>
+                <dd>Computer Science and Engineering</dd>
+              </div>
+              <div class="about__info-row">
+                <dt>Email</dt>
+                <dd>user.aamirul@gmail.com</dd>
+              </div>
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 4. MY JOURNEY ============ -->
+    <section id="journey" class="section section--alt">
+      <div class="container">
+        <p class="section__eyebrow reveal">Timeline</p>
+        <h2 class="section__title reveal">My Journey</h2>
+        <p class="section__subtitle reveal">A brief look at the path that shaped my academic journey so far.</p>
+
+        <ol class="timeline">
+          <li class="timeline__item reveal">
+            <span class="timeline__marker" aria-hidden="true"></span>
+            <div class="timeline__content card">
+              <span class="timeline__tag">PSTU</span>
+              <h3 class="timeline__title">Beginning My Academic Journey</h3>
+              <p class="timeline__desc">
+                I began my higher education at Patuakhali Science and Technology University,
+                where I developed my academic foundation and interest in technology.
+              </p>
+            </div>
+          </li>
+
+          <li class="timeline__item reveal">
+            <span class="timeline__marker" aria-hidden="true"></span>
+            <div class="timeline__content card">
+              <span class="timeline__tag">2023</span>
+              <h3 class="timeline__title">A Turning Point</h3>
+              <p class="timeline__desc">
+                In 2023, my academic journey took a significant turn and I had to transfer to a new institution for some inevitable reasons. Despite the challenges, I remained determined to continue my education.               
+              </p>
+            </div>
+          </li>
+
+          <li class="timeline__item reveal">
+            <span class="timeline__marker" aria-hidden="true"></span>
+            <div class="timeline__content card">
+              <span class="timeline__tag">Academic Transition</span>
+              <h3 class="timeline__title">Credit Transfer to UITS</h3>
+              <p class="timeline__desc">
+                As part of my academic transition and recovery, I transferred my completed
+                credits from PSTU to the University of Information Technology and Sciences.
+              </p>
+            </div>
+          </li>
+
+          <li class="timeline__item reveal">
+            <span class="timeline__marker" aria-hidden="true"></span>
+            <div class="timeline__content card">
+              <span class="timeline__tag">Current Journey</span>
+              <h3 class="timeline__title">Continuing with Determination</h3>
+              <p class="timeline__desc">
+                I continued my studies at UITS with renewed focus, resilience, and a stronger
+                commitment to personal and professional growth.
+              </p>
+            </div>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- ============ 5. EDUCATION ============ -->
+    <section id="education" class="section">
+      <div class="container">
+        <p class="section__eyebrow reveal">Background</p>
+        <h2 class="section__title reveal">Education</h2>
+
+        <div class="education__grid">
+          <div class="education__card card reveal">
+            <span class="education__status education__status--current">Currently studying</span>
+            <h3 class="education__institution">University of Information Technology and Sciences — UITS</h3>
+            <p class="education__degree">Bachelor of Science in Computer Science and Engineering</p>
+            <p class="education__department">Computer Science and Engineering</p>
+            <p class="education__desc">
+              Continuing my academic journey while developing technical, analytical, and
+              professional skills.
+            </p>
+            <dl class="education__extra">
+              <div><dt>Study period</dt><dd>2024 — Present</dd></div>
+              <div><dt>Relevant courses</dt><dd>Data Structures and Algorithms, Database Systems, Software Engineering, Machine Learning</dd></div>
+              <div><dt>Academic interests</dt><dd>Machine Learning, Artificial Intelligence</dd></div>
+              <!-- <div><dt>Achievements</dt><dd>Dean's List (Fall 2023), Research Assistant (Spring 2024)</dd></div> -->
+            </dl>
+          </div>
+
+          <div class="education__card card reveal">
+            <span class="education__status">Previous institution</span>
+            <h3 class="education__institution">Patuakhali Science and Technology University — PSTU</h3>
+            <p class="education__degree">B.Sc (Engg.) in Computer Science and Engineering</p>
+            <p class="education__desc">
+              Completed academic credits before transferring to UITS in 2024.
+            </p>
+            <dl class="education__extra">
+              <div><dt>Study period</dt><dd>2019 — 2023</dd></div>
+              <div><dt>Relevant courses</dt><dd>Programming Fundamentals, Data Structures, Object-Oriented Programming</dd></div>
+              <div><dt>Academic interests</dt><dd>Web Development, Internet of Things (IoT)</dd></div>
+              <!-- <div><dt>Achievements</dt><dd>Dean's List (2019-2021), Student Government Representative (2022-2023)</dd></div> -->
+            </dl>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 6. SKILLS ============ -->
+    <section id="skills" class="section section--alt">
+      <div class="container">
+        <p class="section__eyebrow reveal">Capabilities</p>
+        <h2 class="section__title reveal">Skills</h2>
+
+        <div class="skills__categories" id="skillsContainer">
+          <!-- Skill cards are rendered here by script.js from the SKILLS data array -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 7. PROJECTS ============ -->
+    <section id="projects" class="section">
+      <div class="container">
+        <p class="section__eyebrow reveal">Selected Work</p>
+        <h2 class="section__title reveal">Projects</h2>
+
+        <div class="projects__grid" id="projectsContainer">
+          <!-- Project cards are rendered here by script.js from the PROJECTS data array -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 8. INTERESTS AND HOBBIES ============ -->
+    <section id="interests" class="section section--alt">
+      <div class="container">
+        <p class="section__eyebrow reveal">Beyond Academics</p>
+        <h2 class="section__title reveal">Interests &amp; Hobbies</h2>
+
+        <div class="interests__grid" id="interestsContainer">
+          <!-- Interest cards are rendered here by script.js from the INTERESTS data array -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 9. CAREER GOALS ============ -->
+    <section id="goals" class="section">
+      <div class="container">
+        <p class="section__eyebrow reveal">Looking Ahead</p>
+        <h2 class="section__title reveal">Career Goals</h2>
+        <p class="section__subtitle reveal">
+          My goal is to strengthen my software development skills, contribute to meaningful
+          technology projects, and grow into a capable, responsible, and adaptable technology
+          professional. I want to continue learning, gain practical experience, and use
+          technology to solve real-world problems.
+        </p>
+
+        <div class="goals__grid">
+          <div class="goals__card card reveal">
+            <div class="goals__icon" aria-hidden="true">🎯</div>
+            <h3>Improve Technical Skills</h3>
+            <p>Deepen my knowledge of programming languages, tools, and best practices through consistent practice.</p>
+          </div>
+          <div class="goals__card card reveal">
+            <div class="goals__icon" aria-hidden="true">🚀</div>
+            <h3>Build Meaningful Projects</h3>
+            <p>Create practical, well-designed projects that solve real problems and showcase my growth.</p>
+          </div>
+          <div class="goals__card card reveal">
+            <div class="goals__icon" aria-hidden="true">🌱</div>
+            <h3>Grow as a Technology Professional</h3>
+            <p>Develop the discipline, collaboration skills, and adaptability needed for a long-term career in tech.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ 10. CONTACT ============ -->
+    <section id="contact" class="section section--alt">
+      <div class="container">
+        <p class="section__eyebrow reveal">Get In Touch</p>
+        <h2 class="section__title reveal">Contact</h2>
+
+        <div class="contact__grid">
+          <div class="contact__details reveal">
+            <p class="contact__intro">
+              I'd love to hear from you. Feel free to reach out for collaboration,
+              opportunities, or just to say hello.
+            </p>
+            <ul class="contact__list">
+              <li>
+                <span class="contact__label">Email</span>
+                <a href="mailto:user.aamirul@gmail.com">user.aamirul@gmail.com</a>
+              </li>
+              <li>
+                <span class="contact__label">LinkedIn</span>
+                <a href="https://www.linkedin.com/feed/" target="_blank" rel="noopener noreferrer">Amirul Alam</a>
+              </li>
+              <li>
+                <span class="contact__label">GitHub</span>
+                <a href="https://github.com/amirul-zq" target="_blank" rel="noopener noreferrer">amirul-zq</a>
+              </li>
+              <li>
+                <span class="contact__label">Location</span>
+                <span>Dhaka, Bangladesh</span>
+              </li>
+            </ul>
+
+            <div class="contact__socials" aria-label="Social media links">
+              <a href="https://github.com/amirul-zq" target="_blank" rel="noopener noreferrer" class="social-icon" aria-label="GitHub profile">GH</a>
+              <a href="https://www.linkedin.com/feed/" target="_blank" rel="noopener noreferrer" class="social-icon" aria-label="LinkedIn profile">IN</a>
+              <a href="mailto:user.aamirul@gmail.com" class="social-icon" aria-label="Send an email">@</a>
+            </div>
+          </div>
+
+          <form class="contact__form card reveal" id="contactForm" novalidate>
+            <!--
+              No backend is connected. script.js validates these fields and shows a
+              success message only. To make this form functional later, connect it
+              to a service such as Formspree, EmailJS, or your own backend endpoint.
+            -->
+            <div class="form__group">
+              <label for="name">Name</label>
+              <input type="text" id="name" name="name" autocomplete="name" required />
+              <span class="form__error" id="nameError" role="alert"></span>
+            </div>
+
+            <div class="form__group">
+              <label for="email">Email</label>
+              <input type="email" id="email" name="email" autocomplete="email" required />
+              <span class="form__error" id="emailError" role="alert"></span>
+            </div>
+
+            <div class="form__group">
+              <label for="subject">Subject</label>
+              <input type="text" id="subject" name="subject" required />
+              <span class="form__error" id="subjectError" role="alert"></span>
+            </div>
+
+            <div class="form__group">
+              <label for="message">Message</label>
+              <textarea id="message" name="message" rows="5" required></textarea>
+              <span class="form__error" id="messageError" role="alert"></span>
+            </div>
+
+            <button type="submit" class="btn btn--primary form__submit">Send Message</button>
+            <p class="form__success" id="formSuccess" role="status" aria-live="polite"></p>
+          </form>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ============ 11. FOOTER ============ -->
+  <footer class="footer">
+    <div class="container footer__inner">
+      <p class="footer__copy">&copy; <span id="currentYear"></span> aamirul_portofolio. Designed and developed using HTML, CSS, JavaScript.</p>
+
+      <div class="footer__socials" aria-label="Social media links">
+        <a href="https://github.com/amirul-zq" target="_blank" rel="noopener noreferrer" class="social-icon" aria-label="GitHub profile">GH</a>
+        <a href="https://www.linkedin.com/feed/" target="_blank" rel="noopener noreferrer" class="social-icon" aria-label="LinkedIn profile">IN</a>
+        <a href="mailto:user.aamirul@gmail.com" class="social-icon" aria-label="Send an email">@</a>
+      </div>
+
+      <p class="footer__thanks">Thank you for visiting my webpage.</p>
+
+      <button class="back-to-top" id="backToTop" aria-label="Back to top">↑</button>
+    </div>
+  </footer>
+
+  <script src="script.js"></script>
+</body>
+</html>
