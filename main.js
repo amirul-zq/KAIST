@@ -8,8 +8,18 @@
 
 import * as THREE from "three";
 import { BOARD_NODES, BOARD_EDGES, BOARD_NODES_BY_ID, OUTER_RING_HALF_SIZE, findUnreachableNodeIds } from "./boardData.js";
-import { throwSticks, createThrowSession, recordThrow, BACK_DO_STICK_INDEX } from "./gameLogic.js";
-import { renderThrowControls, setThrowButtonEnabled, updateThrowResult } from "./ui.js";
+import { throwSticks, forceThrowResult, createThrowSession, recordThrow, BACK_DO_STICK_INDEX } from "./gameLogic.js";
+import { renderThrowControls, setThrowButtonEnabled, updateThrowResult, renderDebugPanel } from "./ui.js";
+
+// DEVELOPER TEST PANEL SWITCH — must be `false` before submission.
+// When true, an on-screen panel lets you force each throw result (Do, Gae,
+// Geol, Yut, Mo, Back Do) for testing, via the exact same processThrowResult
+// pipeline a real throw uses (see below). It has zero effect on gameplay
+// when false: renderDebugPanel() is simply never called, so no debug DOM,
+// styling, or listeners exist at all.
+// To turn it off before submission: set this back to `false` (see also
+// README.md's "Developer test panel" section).
+const DEBUG_MODE = false;
 
 const canvas = document.getElementById("scene-canvas");
 const loadingMessageEl = document.getElementById("loading-message");
@@ -304,15 +314,13 @@ try {
     }
   }
 
-  function handleThrowClick() {
+  // Shared by both a real throw and a forced (debug-panel) throw, so the two
+  // can never diverge in how a result gets animated, recorded, or displayed
+  // — only where the ThrowResult itself came from differs.
+  function processThrowResult(result) {
     if (isThrowAnimating) return; // prevent double-clicking during the animation
     isThrowAnimating = true;
     setThrowButtonEnabled(false);
-
-    // The result is decided immediately — the animation only reveals it —
-    // so "result calculated from the four visible stick sides" and the
-    // sticks the player sees settle are always the exact same stickStates.
-    const result = throwSticks();
 
     startThrowAnimation(result.stickStates, () => {
       recordThrow(throwSession, result);
@@ -322,7 +330,25 @@ try {
     });
   }
 
+  function handleThrowClick() {
+    // The result is decided immediately — the animation only reveals it —
+    // so "result calculated from the four visible stick sides" and the
+    // sticks the player sees settle are always the exact same stickStates.
+    processThrowResult(throwSticks());
+  }
+
   renderThrowControls({ onThrowClick: handleThrowClick });
+
+  // Developer test panel: only ever rendered when DEBUG_MODE is true (see
+  // the constant's declaration at the top of this file for how to turn it
+  // off). Forced throws go through the identical processThrowResult
+  // pipeline as a real click, so there is no separate "debug" code path
+  // that could behave differently from normal play.
+  if (DEBUG_MODE) {
+    renderDebugPanel({
+      onForceThrow: (type) => processThrowResult(forceThrowResult(type)),
+    });
+  }
 
   // ---------- Resize handling ----------
   // Pixel ratio is capped at 2 rather than used raw (phones commonly report

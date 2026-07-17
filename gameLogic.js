@@ -58,17 +58,14 @@ function makeStartingPieces(ownerId) {
 export const BACK_DO_STICK_INDEX = 3;
 
 /**
- * Randomly throws the 4 yut sticks and maps the result to a ThrowType.
- * Each stick independently lands flat-up or round-up; the *count* of
- * flat-up sticks gives Do/Gae/Geol/Yut/Mo, except when exactly one stick
- * is flat: then it's Do unless that one flat stick is specifically the
- * marked (Back-Do) stick, in which case it's Back-Do instead (PRD.md §5).
- * @returns {ThrowResult & { stickStates: boolean[] }} stickStates[i] is true
- *   when stick i landed flat-up — the renderer uses this to show the exact
- *   sides that produced the result, never an independent random animation.
+ * The single place that turns 4 stick sides into a ThrowResult. Every throw
+ * — real (throwSticks) or forced by the developer test panel
+ * (forceThrowResult) — passes through this exact function, so the debug
+ * panel can never compute a result by different rules than a real throw.
+ * @param {boolean[]} stickStates  stickStates[i] is true when stick i is flat-up
+ * @returns {ThrowResult & { stickStates: boolean[] }}
  */
-export function throwSticks() {
-  const stickStates = Array.from({ length: 4 }, () => Math.random() < 0.5);
+function computeThrowResult(stickStates) {
   const flatCount = stickStates.filter(Boolean).length;
 
   let type;
@@ -99,6 +96,58 @@ export function throwSticks() {
   }
 
   return { type, value, isBonus, stickStates };
+}
+
+/**
+ * Randomly throws the 4 yut sticks. Each stick independently lands flat-up
+ * or round-up; the *count* of flat-up sticks gives Do/Gae/Geol/Yut/Mo,
+ * except when exactly one stick is flat: then it's Do unless that one flat
+ * stick is specifically the marked (Back-Do) stick, in which case it's
+ * Back-Do instead (PRD.md §5) — see computeThrowResult above.
+ * @returns {ThrowResult & { stickStates: boolean[] }} stickStates[i] is true
+ *   when stick i landed flat-up — the renderer uses this to show the exact
+ *   sides that produced the result, never an independent random animation.
+ */
+export function throwSticks() {
+  const stickStates = Array.from({ length: 4 }, () => Math.random() < 0.5);
+  return computeThrowResult(stickStates);
+}
+
+/**
+ * DEVELOPER-ONLY: picks a plausible set of stick sides for a given forced
+ * outcome, then runs it through the exact same computeThrowResult used by
+ * throwSticks(). Only ever called from the debug test panel (main.js,
+ * gated behind DEBUG_MODE) — never part of normal play.
+ * @param {ThrowType} type
+ * @returns {ThrowResult & { stickStates: boolean[] }}
+ */
+export function forceThrowResult(type) {
+  const states = [false, false, false, false];
+  switch (type) {
+    case "MO":
+      break; // all round-up already
+    case "YUT":
+      states.fill(true);
+      break;
+    case "BACKDO":
+      states[BACK_DO_STICK_INDEX] = true;
+      break;
+    case "DO":
+      states[(BACK_DO_STICK_INDEX + 1) % 4] = true; // any non-marked stick
+      break;
+    case "GAE":
+      states[0] = true;
+      states[1] = true;
+      break;
+    case "GEOL":
+      states[0] = true;
+      states[1] = true;
+      states[2] = true;
+      break;
+    default:
+      throw new Error(`Cannot force unknown throw type: ${type}`);
+  }
+  return computeThrowResult(states);
 }
 
 /**

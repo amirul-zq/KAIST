@@ -90,6 +90,50 @@ html, body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
+/* ---------- Developer test panel (DEBUG_MODE only, see main.js) ---------- */
+#debug-panel {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.6rem 0.75rem;
+  background: repeating-linear-gradient(45deg, #3a0d0d, #3a0d0d 10px, #200808 10px, #200808 20px);
+  border: 2px dashed #ff5c5c;
+  border-radius: 0.4rem;
+  max-width: 220px;
+}
+
+#debug-panel-label {
+  font-size: 0.7rem;
+  font-weight: bold;
+  color: #ff9d9d;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+#debug-panel-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.debug-force-button {
+  padding: 0.3rem 0.5rem;
+  font-size: 0.8rem;
+  border: 1px solid #ff5c5c;
+  border-radius: 0.3rem;
+  background: #1a0505;
+  color: #ff9d9d;
+  cursor: pointer;
+}
+
+.debug-force-button:hover {
+  background: #ff5c5c;
+  color: #1a0505;
+}
+
 /* ---------- Setup screen ---------- */
 #setup-screen {
   position: fixed;

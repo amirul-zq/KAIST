@@ -29,4 +29,16 @@ Then open `http://localhost:8000` (or whichever port/URL the tool prints) in a m
 - `i18n.js` — English/Korean text strings
 - `assets/`, `pieces/` — textures, sounds, images, and piece-face assets
 
+### Developer test panel (DEBUG_MODE)
+
+`main.js` has a `DEBUG_MODE` constant near the top of the file. When set to `true`, an on-screen developer panel appears (top-left, clearly marked "DEVELOPER TEST PANEL") with one button per Yut throw outcome (Do, Gae, Geol, Yut, Mo, Back Do), letting you force a specific result instead of waiting on randomness while testing. Forced throws run through the exact same processing pipeline as a real throw (`gameLogic.js`'s `forceThrowResult()` shares its result-computation logic with `throwSticks()`), so it cannot behave differently from normal play — it only changes which stick sides happen to be dealt.
+
+**Before submitting, `DEBUG_MODE` must be `false`** (this is also its default). To verify:
+
+```bash
+grep -n "DEBUG_MODE" main.js
+```
+
+should show `const DEBUG_MODE = false;` with no other assignment overriding it. With it `false`, `renderDebugPanel()` is never called — the panel doesn't exist in the DOM at all, not merely hidden.
+
 Status: structure and starter files only — the game itself is not implemented yet.

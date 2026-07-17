@@ -70,6 +70,40 @@ export function updateThrowResult(latestResult, session) {
       : "";
 }
 
+const DEBUG_FORCEABLE_TYPES = ["DO", "GAE", "GEOL", "YUT", "MO", "BACKDO"];
+
+/**
+ * DEVELOPER-ONLY test panel: one button per throw outcome, for forcing a
+ * result during testing instead of waiting on randomness. main.js only
+ * calls this when its DEBUG_MODE constant is true — with DEBUG_MODE false
+ * (the default, required before submission) this function is never called,
+ * so nothing from this panel exists in the DOM or affects normal play.
+ * @param {{ onForceThrow: (type: string) => void }} handlers
+ */
+export function renderDebugPanel({ onForceThrow }) {
+  const panel = document.createElement("div");
+  panel.id = "debug-panel";
+
+  const label = document.createElement("div");
+  label.id = "debug-panel-label";
+  label.textContent = "DEVELOPER TEST PANEL — force a throw result (not part of the game)";
+  panel.appendChild(label);
+
+  const buttonRow = document.createElement("div");
+  buttonRow.id = "debug-panel-buttons";
+  for (const type of DEBUG_FORCEABLE_TYPES) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "debug-force-button";
+    button.textContent = throwResultLabel("en", type);
+    button.addEventListener("click", () => onForceThrow(type));
+    buttonRow.appendChild(button);
+  }
+  panel.appendChild(buttonRow);
+
+  hudEl.appendChild(panel);
+}
+
 /**
  * Renders the pre-game setup screen (nickname / language / face selection).
  * TODO: build the actual form; currently a placeholder shell.
