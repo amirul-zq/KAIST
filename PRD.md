@@ -79,7 +79,7 @@ To match traditional play and avoid ambiguous partial-turns:
 
 ## 9. Board Layout
 
-The board is modeled as a graph of 29 distinct nodes: a 20-node outer ring plus 5 shared diagonal/center nodes, matching traditional Yutnori board topology.
+The board is modeled as a graph of 25 distinct nodes: a 20-node outer ring plus 5 shared diagonal/center nodes, matching traditional Yutnori board topology.
 
 ```
         O10 (corner)
@@ -105,16 +105,16 @@ The board is modeled as a graph of 29 distinct nodes: a 20-node outer ring plus 
 
 ## 11. Diagonal Shortcuts
 
-- Two diagonals cross at a single shared **Center** node (`C`), connecting opposite corners:
-  - Diagonal A: `O5 ↔ D5 ↔ C ↔ D10 ↔ O10`
-  - Diagonal B: `O0 ↔ D0 ↔ C ↔ D15 ↔ O15` *(entry from the O0/start side is only reachable when a piece re-enters via C from elsewhere; O0 itself is the home node)*
+- Two diagonals cross at a single shared **Center** node (`C`), connecting *opposite* corners (i.e. the square's actual geometric diagonals, not two corners that are already adjacent along the outer ring):
+  - Diagonal A: `O0 ↔ D0 ↔ C ↔ D10 ↔ O10`
+  - Diagonal B: `O5 ↔ D5 ↔ C ↔ D15 ↔ O15`
 - A piece landing exactly on `O5`, `O10`, `O15`, or `C` automatically takes the shortcut toward home on its next move(s), since the diagonal route is shorter than continuing around the outer ring.
-- From `C`, the shortest path home is `C → D15 → O15 → O16 → O17 → O18 → O19 → home`... engine always computes the shortest legal remaining path to home from the piece's current node given the move's remaining spaces.
+- From `C`, the shortest path home is `C → D0 → O0` — landing on the center is the single most valuable shortcut node, since Diagonal A leads directly back to the home corner. The engine always computes the shortest legal remaining path to home from the piece's current node given the move's remaining spaces.
 
 ## 12. Center Path
 
 - The **Center** node (`C`) is the hub where both diagonals cross.
-- A piece may pass through `C` as part of a longer move (e.g., landing beyond `D5` with enough remaining spaces continues through `C` toward `D10`/`O10` or `D15`/`O15`, whichever is the correct forward direction toward home).
+- A piece may pass through `C` as part of a longer move (e.g., landing beyond `D5` with enough remaining spaces continues through `C` onward to `D15`/`O15`, since Diagonal B is `O5 ↔ D5 ↔ C ↔ D15 ↔ O15`).
 - Landing exactly on `C` also grants shortcut eligibility, per §11.
 
 ## 13. Piece Selection
