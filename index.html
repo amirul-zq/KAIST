@@ -16,6 +16,23 @@
   <!-- Shown until the first frame renders; hidden by main.js -->
   <div id="loading-message">Loading 3D scene…</div>
 
+  <!--
+    Watchdog: if the page is still stuck on the loading message after a few
+    seconds — e.g. the Three.js CDN import below never resolved — main.js's
+    module code may never have run at all, so it can't report its own
+    failure. This plain (non-module) script always runs and explains what
+    likely went wrong instead of leaving the page silently blank.
+  -->
+  <script>
+    window.setTimeout(function () {
+      var el = document.getElementById("loading-message");
+      if (el && el.style.display !== "none") {
+        el.textContent =
+          "Still loading… this can happen if the Three.js CDN is unreachable. Check your internet connection and the browser console, then reload.";
+      }
+    }, 8000);
+  </script>
+
   <!-- HUD overlay (turn indicator, throw button, restart, mute) — populated by ui.js -->
   <div id="hud"></div>
 
