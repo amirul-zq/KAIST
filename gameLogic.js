@@ -7,14 +7,34 @@
 //
 // Board topology comes from boardData.js and is only ever read here, not redefined.
 
-import { START_NODE_ID } from "./boardData.js";
-
 /**
  * @typedef {'DO'|'GAE'|'GEOL'|'YUT'|'MO'|'BACKDO'} ThrowType
  * @typedef {Object} ThrowResult
  * @property {ThrowType} type
  * @property {number} value      spaces to move; negative for BACKDO
  * @property {boolean} isBonus   true for YUT and MO (see PRD.md §5-7)
+ */
+
+/** @typedef {'WAITING'|'ACTIVE'|'HOME'} PieceState */
+export const PieceState = Object.freeze({
+  WAITING: "WAITING", // begins outside the board (Phase 4) — not yet thrown into play
+  ACTIVE: "ACTIVE", // on a board node
+  HOME: "HOME", // completed its lap
+});
+
+/**
+ * @typedef {Object} Piece
+ * @property {string} id
+ * @property {'blue'|'red'} player
+ * @property {PieceState} state
+ * @property {string|null} route     which path branch this piece is following
+ *   once on board (e.g. a specific diagonal shortcut) — unset until movement
+ *   is implemented; exists now so the field never has to be bolted on later
+ * @property {string|null} position  board node id while ACTIVE; null while
+ *   WAITING or HOME
+ * @property {boolean} completed     true once state is HOME
+ * @property {string|null} stackId   shared id with any pieces it's stacked
+ *   with; unused until stacking is implemented (PRD.md §15)
  */
 
 /**
@@ -44,10 +64,15 @@ export function createInitialState(options = {}) {
   };
 }
 
+/** @returns {Piece[]} */
 function makeStartingPieces(ownerId) {
   return Array.from({ length: 4 }, (_, i) => ({
     id: `${ownerId}-${i}`,
-    position: START_NODE_ID,
+    player: ownerId,
+    state: PieceState.WAITING,
+    route: null,
+    position: null,
+    completed: false,
     stackId: null,
   }));
 }

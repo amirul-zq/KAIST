@@ -8,8 +8,22 @@
 
 import * as THREE from "three";
 import { BOARD_NODES, BOARD_EDGES, BOARD_NODES_BY_ID, OUTER_RING_HALF_SIZE, findUnreachableNodeIds } from "./boardData.js";
-import { throwSticks, forceThrowResult, createThrowSession, recordThrow, BACK_DO_STICK_INDEX } from "./gameLogic.js";
-import { renderThrowControls, setThrowButtonEnabled, updateThrowResult, renderDebugPanel } from "./ui.js";
+import {
+  throwSticks,
+  forceThrowResult,
+  createThrowSession,
+  recordThrow,
+  createInitialState,
+  BACK_DO_STICK_INDEX,
+} from "./gameLogic.js";
+import {
+  renderThrowControls,
+  setThrowButtonEnabled,
+  updateThrowResult,
+  renderDebugPanel,
+  renderPieceSelectionPanel,
+  updatePieceSelectionDisplay,
+} from "./ui.js";
 
 // DEVELOPER TEST PANEL SWITCH — must be `false` before submission.
 // When true, an on-screen panel lets you force each throw result (Do, Gae,
@@ -61,6 +75,26 @@ const STICK_BASE_Z = 4.4; // toward the near edge, off the board's center X patt
 const STICK_REST_Y = 1.4;
 const STICK_DROP_HEIGHT = 1.6; // how far above rest height sticks hover at the start of a throw
 const THROW_DURATION_MS = 900;
+
+// ---------- Piece visual constants ----------
+const PIECE_RADIUS = 0.4;
+const PIECE_HEIGHT = 0.28;
+const PIECE_REST_Y = PIECE_HEIGHT / 2; // sits flush on the tabletop-height plane (y=0), same as the board's own top surface
+const PIECE_LIFT_HEIGHT = 0.35; // how far a selected piece rises
+const PIECE_HOVER_SCALE = 1.08;
+const PIECE_HOVER_EMISSIVE = 0.35;
+const PIECE_SELECTED_EMISSIVE = 0.5;
+const PIECE_LEGAL_GLOW_BASE = 0.1; // baseline glow on every currently-selectable piece
+const PIECE_LEGAL_GLOW_AMPLITUDE = 0.08; // how much that glow pulses
+
+const COLOR_PIECE_BLUE = 0x2b5fd6;
+const COLOR_PIECE_RED = 0xd6392b;
+
+// Waiting-area layout: each player's 4 pieces sit just outside the board as
+// a 2x2 grid — blue to the left (negative X), red to the right (positive X).
+const WAITING_AREA_GAP = 1.2; // gap between the board's outer edge and the nearest waiting slot
+const WAITING_AREA_COLUMN_SPACING = 0.95;
+const WAITING_AREA_ROW_SPACING = 1.1;
 
 // Wrapped in try/catch so a runtime failure (e.g. WebGL unsupported) reports
 // itself in the loading message instead of leaving the page silently blank —
@@ -350,6 +384,112 @@ try {
     });
   }
 
+  // ---------- Pieces ----------
+  // Piece data (id/player/state/route/position/completed/stackId) comes
+  // entirely from gameLogic.js's createInitialState() — this section only
+  // turns that data into meshes and reads it back for display; it never
+  // invents piece state of its own (PRD.md §21, "game logic separate from
+  // 3D rendering"). No movement yet: clicking a piece only selects it.
+  const gameState = createInitialState();
+
+  function waitingAreaSlotPosition(owner, slotIndex) {
+    const col = Math.floor(slotIndex / 2); // 0 or 1
+    const row = slotIndex % 2; // 0 or 1
+    const colOffset = BOARD_HALF_SIZE + WAITING_AREA_GAP + col * WAITING_AREA_COLUMN_SPACING;
+    const x = owner === "blue" ? -colOffset : colOffset;
+    const z = (row === 0 ? -1 : 1) * (WAITING_AREA_ROW_SPACING / 2);
+    return { x, z };
+  }
+
+  // Side/top/bottom are kept as 3 separate material instances (CylinderGeometry's
+  // 3 face groups) rather than 1 shared material, so a later phase can assign a
+  // face texture to just the top cap (group 1) without touching the side/bottom
+  // look — "support face textures later".
+  function createPieceMesh(owner) {
+    const color = owner === "blue" ? COLOR_PIECE_BLUE : COLOR_PIECE_RED;
+    const materials = [0.5, 0.35, 0.6].map(
+      (roughness) =>
+        new THREE.MeshStandardMaterial({ color, roughness, emissive: new THREE.Color(color), emissiveIntensity: 0 })
+    );
+    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(PIECE_RADIUS, PIECE_RADIUS, PIECE_HEIGHT, 32), materials);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    return mesh;
+  }
+
+  // id -> { piece, mesh }. `piece` is the gameLogic.js data object (read-only
+  // here); `mesh` is purely this piece's visual representation. Multiple
+  // pieces sharing one position later (stacking, PRD.md §15) would offset by
+  // stack index here — not needed yet since every piece starts WAITING.
+  const pieceEntriesById = new Map();
+  for (const player of gameState.players) {
+    player.pieces.forEach((piece, slotIndex) => {
+      const mesh = createPieceMesh(piece.player);
+      const { x, z } = waitingAreaSlotPosition(piece.player, slotIndex);
+      mesh.position.set(x, PIECE_REST_Y, z);
+      mesh.userData.pieceId = piece.id;
+      scene.add(mesh);
+      pieceEntriesById.set(piece.id, { piece, mesh });
+    });
+  }
+
+  // ---------- Piece interaction: hover, select, legal glow ----------
+  const raycaster = new THREE.Raycaster();
+  const pointerNDC = new THREE.Vector2();
+  const pieceMeshes = [...pieceEntriesById.values()].map((entry) => entry.mesh);
+  let hoveredPieceId = null;
+  let selectedPieceId = null;
+
+  function pieceIdFromPointerEvent(event) {
+    const rect = canvas.getBoundingClientRect();
+    pointerNDC.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    pointerNDC.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(pointerNDC, camera);
+    const hits = raycaster.intersectObjects(pieceMeshes, false);
+    return hits.length > 0 ? hits[0].object.userData.pieceId : null;
+  }
+
+  canvas.addEventListener("pointermove", (event) => {
+    hoveredPieceId = pieceIdFromPointerEvent(event);
+    canvas.style.cursor = hoveredPieceId ? "pointer" : "default";
+  });
+
+  canvas.addEventListener("click", (event) => {
+    const clickedId = pieceIdFromPointerEvent(event);
+    selectedPieceId = clickedId === selectedPieceId ? null : clickedId; // click again to deselect
+    updatePieceSelectionDisplay(selectedPieceId ? pieceEntriesById.get(selectedPieceId).piece : null);
+  });
+
+  renderPieceSelectionPanel();
+
+  // Every waiting piece is currently "legal" to select, since piece
+  // movement — which would make some pieces illegal to pick — hasn't been
+  // implemented yet (PRD.md §13). The glow mechanism itself is what this
+  // phase builds; a later phase only needs to change which ids receive it.
+  function updatePieceVisuals(now) {
+    const legalPulse = PIECE_LEGAL_GLOW_BASE + PIECE_LEGAL_GLOW_AMPLITUDE * (0.5 + 0.5 * Math.sin(now * 0.003));
+
+    for (const [pieceId, { mesh }] of pieceEntriesById) {
+      const isSelected = pieceId === selectedPieceId;
+      const isHovered = pieceId === hoveredPieceId;
+
+      const targetY = PIECE_REST_Y + (isSelected ? PIECE_LIFT_HEIGHT : 0);
+      mesh.position.y += (targetY - mesh.position.y) * 0.25;
+
+      const targetScale = isHovered ? PIECE_HOVER_SCALE : 1;
+      mesh.scale.x += (targetScale - mesh.scale.x) * 0.3;
+      mesh.scale.y += (targetScale - mesh.scale.y) * 0.3;
+      mesh.scale.z += (targetScale - mesh.scale.z) * 0.3;
+
+      let emissiveIntensity = legalPulse;
+      if (isHovered) emissiveIntensity = Math.max(emissiveIntensity, PIECE_HOVER_EMISSIVE);
+      if (isSelected) emissiveIntensity = Math.max(emissiveIntensity, PIECE_SELECTED_EMISSIVE);
+      for (const material of mesh.material) {
+        material.emissiveIntensity = emissiveIntensity;
+      }
+    }
+  }
+
   // ---------- Resize handling ----------
   // Pixel ratio is capped at 2 rather than used raw (phones commonly report
   // 3+), since rendering that many physical pixels per CSS pixel — on top of
@@ -390,6 +530,7 @@ try {
   function animate(now) {
     requestAnimationFrame(animate);
     updateThrowAnimation(now);
+    updatePieceVisuals(now);
     renderer.render(scene, camera);
 
     // Hide the loading message once the first real frame has been drawn.

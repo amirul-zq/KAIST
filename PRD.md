@@ -260,7 +260,17 @@ GameState = {
       faceId: string,          // selected piece-face/character id from the setup gallery (§19-20)
       isAI: boolean,
       pieces: [
-        { id: string, position: NodeId | 'START' | 'HOME', stackId: string | null }
+        {
+          id: string,
+          player: 'blue' | 'red',
+          state: 'WAITING' | 'ACTIVE' | 'HOME',  // WAITING = outside the board (starting state);
+                                                   // ACTIVE = on a board node; HOME = completed its lap
+          route: string | null,    // which path branch this piece is following once on board
+                                    // (e.g. a specific diagonal shortcut); set on its first move
+          position: NodeId | null, // board node id while ACTIVE; null while WAITING or HOME
+          completed: boolean,      // true once state is HOME
+          stackId: string | null,
+        }
         // 4 entries per player
       ]
     },

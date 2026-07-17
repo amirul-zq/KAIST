@@ -90,6 +90,18 @@ html, body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
+/* ---------- Piece selection info (Phase 4) ---------- */
+#piece-selection-info {
+  position: fixed;
+  top: 1rem;
+  right: 1rem;
+  font-size: 0.85rem;
+  color: #d8cdb8;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  max-width: 260px;
+  text-align: right;
+}
+
 /* ---------- Developer test panel (DEBUG_MODE only, see main.js) ---------- */
 #debug-panel {
   position: fixed;

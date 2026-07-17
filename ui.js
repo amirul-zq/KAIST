@@ -70,6 +70,30 @@ export function updateThrowResult(latestResult, session) {
       : "";
 }
 
+let pieceSelectionEl = null;
+
+/**
+ * Builds the (currently read-only) piece-selection readout. Phase 4 only —
+ * clicking a piece has no gameplay effect yet, this just confirms the
+ * interaction is wired up correctly.
+ */
+export function renderPieceSelectionPanel() {
+  pieceSelectionEl = document.createElement("div");
+  pieceSelectionEl.id = "piece-selection-info";
+  hudEl.appendChild(pieceSelectionEl);
+}
+
+/**
+ * @param {import('./gameLogic.js').Piece|null} piece  the selected piece, or
+ *   null to clear the readout
+ */
+export function updatePieceSelectionDisplay(piece) {
+  if (!pieceSelectionEl) return;
+  pieceSelectionEl.textContent = piece
+    ? `Selected: ${piece.player} piece ${piece.id} — ${piece.state.toLowerCase()} (movement not implemented yet)`
+    : "";
+}
+
 const DEBUG_FORCEABLE_TYPES = ["DO", "GAE", "GEOL", "YUT", "MO", "BACKDO"];
 
 /**
