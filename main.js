@@ -1,10 +1,10 @@
 // main.js
 //
-// Phase 3 adds the four 3D Yut sticks and the throw button on top of the
-// Phase 1/2 scene+board. All spaces still come from boardData.js; the throw
-// outcome itself is computed by gameLogic.js's throwSticks() (pure logic,
-// no THREE) — this file only turns that result into a stick animation and
-// wires the button through ui.js. No pieces, no piece movement yet.
+// Phase 5 adds piece movement on top of the Phase 1-4 scene, board, sticks,
+// and pieces. All movement rules (legal moves, path resolution, shortcuts,
+// completion, turn switching) live in gameLogic.js — this file only reads
+// its results, animates one visible hop at a time, and calls applyMove()
+// when the player clicks a legal piece. No catching, no stacking yet.
 
 import * as THREE from "three";
 import { BOARD_NODES, BOARD_EDGES, BOARD_NODES_BY_ID, OUTER_RING_HALF_SIZE, findUnreachableNodeIds } from "./boardData.js";
@@ -14,15 +14,26 @@ import {
   createThrowSession,
   recordThrow,
   createInitialState,
+  applyMove,
+  isMoveLegal,
+  pruneUnusableResults,
+  maybeSwitchTurn,
+  currentPlayer,
+  PieceState,
   BACK_DO_STICK_INDEX,
 } from "./gameLogic.js";
 import {
   renderThrowControls,
   setThrowButtonEnabled,
   updateThrowResult,
+  updatePendingResultsReadout,
   renderDebugPanel,
   renderPieceSelectionPanel,
   updatePieceSelectionDisplay,
+  renderPendingResultSelector,
+  updatePendingResultSelector,
+  renderTurnIndicator,
+  updateTurnIndicator,
 } from "./ui.js";
 
 // DEVELOPER TEST PANEL SWITCH — must be `false` before submission.
@@ -95,6 +106,17 @@ const COLOR_PIECE_RED = 0xd6392b;
 const WAITING_AREA_GAP = 1.2; // gap between the board's outer edge and the nearest waiting slot
 const WAITING_AREA_COLUMN_SPACING = 0.95;
 const WAITING_AREA_ROW_SPACING = 1.1;
+
+// Finish area: completed pieces line up further back (away from camera),
+// in the same near column as each player's waiting area, on a small raised
+// gold platform so "done" reads clearly at a glance.
+const FINISH_AREA_Z = 2.6;
+const FINISH_SLOT_SPACING = 0.9;
+const COLOR_FINISH_PLATFORM = 0xdba233;
+
+// ---------- Movement animation constants ----------
+const MOVE_STEP_DURATION_MS = 320; // one visible hop
+const MOVE_HOP_ARC_HEIGHT = 0.22;
 
 // Wrapped in try/catch so a runtime failure (e.g. WebGL unsupported) reports
 // itself in the loading message instead of leaving the page silently blank —
@@ -352,15 +374,24 @@ try {
   // can never diverge in how a result gets animated, recorded, or displayed
   // — only where the ThrowResult itself came from differs.
   function processThrowResult(result) {
-    if (isThrowAnimating) return; // prevent double-clicking during the animation
+    if (isThrowAnimating || isMoveAnimating) return; // prevent double-clicking during any animation
     isThrowAnimating = true;
     setThrowButtonEnabled(false);
 
     startThrowAnimation(result.stickStates, () => {
       recordThrow(throwSession, result);
-      updateThrowResult(result, throwSession);
+      // A Back-Do with no ACTIVE piece (or any result no piece could ever
+      // use) is forfeited immediately rather than blocking the game
+      // (PRD.md §5).
+      const forfeited = pruneUnusableResults(throwSession, currentPlayer(gameState).pieces);
+      updateThrowResult(result, throwSession, forfeited);
       isThrowAnimating = false;
-      setThrowButtonEnabled(true);
+
+      if (!throwSession.chainActive && throwSession.pendingResults.length > 0) {
+        selectedResultIndex = 0; // auto-select so a single pending result "just works"
+      }
+      refreshPendingResultUI();
+      handleTurnSettlement();
     });
   }
 
@@ -387,10 +418,14 @@ try {
   // ---------- Pieces ----------
   // Piece data (id/player/state/route/position/completed/stackId) comes
   // entirely from gameLogic.js's createInitialState() — this section only
-  // turns that data into meshes and reads it back for display; it never
-  // invents piece state of its own (PRD.md §21, "game logic separate from
-  // 3D rendering"). No movement yet: clicking a piece only selects it.
+  // turns that data into meshes and reads it back for display, and calls
+  // gameLogic.js's applyMove() to actually move one; it never mutates piece
+  // state directly (PRD.md §21, "game logic separate from 3D rendering").
   const gameState = createInitialState();
+  // The setup screen (nickname/language/face pick) isn't implemented yet
+  // (Phase 4 note carried forward) — skip straight past it so the game is
+  // actually playable.
+  gameState.turnPhase = "THROWING";
 
   function waitingAreaSlotPosition(owner, slotIndex) {
     const col = Math.floor(slotIndex / 2); // 0 or 1
@@ -400,6 +435,30 @@ try {
     const z = (row === 0 ? -1 : 1) * (WAITING_AREA_ROW_SPACING / 2);
     return { x, z };
   }
+
+  // Completed pieces line up here instead, in arrival order.
+  function finishAreaSlotPosition(owner, finishedIndex) {
+    const colOffset = BOARD_HALF_SIZE + WAITING_AREA_GAP;
+    const x = owner === "blue" ? -colOffset : colOffset;
+    const z = FINISH_AREA_Z + finishedIndex * FINISH_SLOT_SPACING;
+    return { x, z };
+  }
+
+  function createFinishPlatform(owner) {
+    const colOffset = BOARD_HALF_SIZE + WAITING_AREA_GAP;
+    const x = owner === "blue" ? -colOffset : colOffset;
+    const zCenter = FINISH_AREA_Z + 1.5 * FINISH_SLOT_SPACING; // centered under 4 potential slots
+    const platform = new THREE.Mesh(
+      new THREE.BoxGeometry(0.9, 0.08, FINISH_SLOT_SPACING * 4 + 0.4),
+      new THREE.MeshStandardMaterial({ color: COLOR_FINISH_PLATFORM, roughness: 0.6 })
+    );
+    platform.position.set(x, 0.04, zCenter);
+    platform.receiveShadow = true;
+    platform.castShadow = true;
+    scene.add(platform);
+  }
+  createFinishPlatform("blue");
+  createFinishPlatform("red");
 
   // Side/top/bottom are kept as 3 separate material instances (CylinderGeometry's
   // 3 face groups) rather than 1 shared material, so a later phase can assign a
@@ -417,10 +476,13 @@ try {
     return mesh;
   }
 
-  // id -> { piece, mesh }. `piece` is the gameLogic.js data object (read-only
-  // here); `mesh` is purely this piece's visual representation. Multiple
-  // pieces sharing one position later (stacking, PRD.md §15) would offset by
-  // stack index here — not needed yet since every piece starts WAITING.
+  // id -> { piece, mesh, slotIndex }. `piece` is the gameLogic.js data object
+  // (read-only here except via applyMove); `mesh` is purely this piece's
+  // visual representation; `slotIndex` (0-3, stable for the piece's whole
+  // life) is where it returns to if it ever backs off the board again.
+  // Multiple pieces sharing one position later (stacking, PRD.md §15) would
+  // offset by stack index here — not needed yet since catching/stacking
+  // aren't implemented this phase.
   const pieceEntriesById = new Map();
   for (const player of gameState.players) {
     player.pieces.forEach((piece, slotIndex) => {
@@ -429,11 +491,101 @@ try {
       mesh.position.set(x, PIECE_REST_Y, z);
       mesh.userData.pieceId = piece.id;
       scene.add(mesh);
-      pieceEntriesById.set(piece.id, { piece, mesh });
+      pieceEntriesById.set(piece.id, { piece, mesh, slotIndex });
     });
   }
 
-  // ---------- Piece interaction: hover, select, legal glow ----------
+  function countHomePieces(playerId) {
+    return gameState.players.find((p) => p.id === playerId).pieces.filter((p) => p.state === PieceState.HOME).length;
+  }
+
+  // ---------- Piece movement animation ----------
+  let isMoveAnimating = false;
+  let pieceMoveAnimation = null; // { pieceId, waypoints: {x,z}[], segmentIndex, segmentStartTime, onComplete }
+
+  function worldXZForNode(nodeId) {
+    const { x, z } = BOARD_NODES_BY_ID.get(nodeId).worldPosition;
+    return { x, z };
+  }
+
+  /**
+   * Builds the hop-by-hop waypoint list for outcome (from applyMove) and
+   * starts animating the piece's mesh along it, one visible space at a
+   * time (PRD.md "move one visible space at a time, animate each step").
+   */
+  function animatePieceMove(entry, outcome, onComplete) {
+    const waypoints = [{ x: entry.mesh.position.x, z: entry.mesh.position.z }];
+
+    if (outcome.exitsToWaiting) {
+      waypoints.push(waitingAreaSlotPosition(entry.piece.player, entry.slotIndex));
+    } else {
+      for (const nodeId of outcome.steps) waypoints.push(worldXZForNode(nodeId));
+      if (outcome.completed) {
+        waypoints.push(finishAreaSlotPosition(entry.piece.player, countHomePieces(entry.piece.player) - 1));
+      }
+    }
+
+    pieceMoveAnimation = {
+      pieceId: entry.piece.id,
+      waypoints,
+      segmentIndex: 0,
+      segmentStartTime: performance.now(),
+      onComplete,
+    };
+  }
+
+  function updatePieceMoveAnimation(now) {
+    if (!pieceMoveAnimation) return;
+    const anim = pieceMoveAnimation;
+    const mesh = pieceEntriesById.get(anim.pieceId).mesh;
+    const from = anim.waypoints[anim.segmentIndex];
+    const to = anim.waypoints[anim.segmentIndex + 1];
+    const t = Math.min((now - anim.segmentStartTime) / MOVE_STEP_DURATION_MS, 1);
+
+    mesh.position.x = from.x + (to.x - from.x) * t;
+    mesh.position.z = from.z + (to.z - from.z) * t;
+    mesh.position.y = PIECE_REST_Y + Math.sin(t * Math.PI) * MOVE_HOP_ARC_HEIGHT;
+
+    if (t >= 1) {
+      anim.segmentIndex += 1;
+      anim.segmentStartTime = now;
+      if (anim.segmentIndex >= anim.waypoints.length - 1) {
+        mesh.position.set(to.x, PIECE_REST_Y, to.z); // snap exactly, clear the hop-arc residue
+        pieceMoveAnimation = null;
+        anim.onComplete();
+      }
+    }
+  }
+
+  // ---------- Turn / pending-result state ----------
+  let selectedResultIndex = null;
+
+  function canThrowNow() {
+    return !isThrowAnimating && !isMoveAnimating && throwSession.pendingResults.length === 0;
+  }
+
+  // The pending-result selector is only ever shown once the whole bonus
+  // chain has settled — PRD.md "do not allow movement until all bonus
+  // throws have been completed".
+  function refreshPendingResultUI() {
+    updatePendingResultSelector(throwSession.chainActive ? [] : throwSession.pendingResults, selectedResultIndex, (index) => {
+      selectedResultIndex = index;
+      refreshPendingResultUI();
+    });
+    setThrowButtonEnabled(canThrowNow());
+  }
+
+  function handleTurnSettlement() {
+    if (maybeSwitchTurn(gameState, throwSession)) {
+      selectedPieceId = null;
+      selectedResultIndex = null;
+      updatePieceSelectionDisplay(null);
+      updateTurnIndicator(currentPlayer(gameState), gameState.settings.language);
+      refreshPendingResultUI();
+    }
+  }
+
+  // ---------- Piece interaction: hover, select, legal glow, move ----------
   const raycaster = new THREE.Raycaster();
   const pointerNDC = new THREE.Vector2();
   const pieceMeshes = [...pieceEntriesById.values()].map((entry) => entry.mesh);
@@ -449,40 +601,112 @@ try {
     return hits.length > 0 ? hits[0].object.userData.pieceId : null;
   }
 
+  /** Whether clicking this piece right now would actually execute a move. */
+  function isPieceMovableNow(piece) {
+    if (isThrowAnimating || isMoveAnimating) return false;
+    if (throwSession.chainActive) return false;
+    if (selectedResultIndex === null) return false;
+    const result = throwSession.pendingResults[selectedResultIndex];
+    if (!result) return false;
+    if (piece.player !== currentPlayer(gameState).id) return false;
+    return isMoveLegal(piece, result);
+  }
+
   canvas.addEventListener("pointermove", (event) => {
-    hoveredPieceId = pieceIdFromPointerEvent(event);
-    canvas.style.cursor = hoveredPieceId ? "pointer" : "default";
+    const id = pieceIdFromPointerEvent(event);
+    hoveredPieceId = id;
+    const entry = id ? pieceEntriesById.get(id) : null;
+    canvas.style.cursor = entry && isPieceMovableNow(entry.piece) ? "pointer" : "default";
   });
 
+  /**
+   * Selects/inspects `pieceId`, and executes a move if it's actually
+   * clickable right now. Factored out of the click listener so the
+   * DEBUG_MODE introspection hook can drive it directly with a known id,
+   * without needing to simulate real screen-coordinate raycasting.
+   */
+  function selectOrMovePiece(pieceId) {
+    if (!pieceId) {
+      selectedPieceId = null;
+      updatePieceSelectionDisplay(null);
+      return;
+    }
+
+    const entry = pieceEntriesById.get(pieceId);
+    selectedPieceId = pieceId; // always usable to inspect a piece, own or opponent's
+    updatePieceSelectionDisplay(entry.piece);
+
+    if (!isPieceMovableNow(entry.piece)) return;
+
+    const resultIndex = selectedResultIndex;
+    const result = throwSession.pendingResults[resultIndex];
+    isMoveAnimating = true;
+    setThrowButtonEnabled(false);
+
+    const outcome = applyMove(entry.piece, result);
+    animatePieceMove(entry, outcome, () => {
+      isMoveAnimating = false;
+      throwSession.pendingResults.splice(resultIndex, 1); // consume exactly the result that was used
+      selectedResultIndex = null;
+      selectedPieceId = null;
+      updatePieceSelectionDisplay(null);
+
+      const forfeited = pruneUnusableResults(throwSession, currentPlayer(gameState).pieces);
+      updatePendingResultsReadout(throwSession, forfeited);
+      if (!throwSession.chainActive && throwSession.pendingResults.length > 0) {
+        selectedResultIndex = 0; // auto-select so a single remaining result "just works"
+      }
+      refreshPendingResultUI();
+      handleTurnSettlement();
+    });
+  }
+
   canvas.addEventListener("click", (event) => {
-    const clickedId = pieceIdFromPointerEvent(event);
-    selectedPieceId = clickedId === selectedPieceId ? null : clickedId; // click again to deselect
-    updatePieceSelectionDisplay(selectedPieceId ? pieceEntriesById.get(selectedPieceId).piece : null);
+    selectOrMovePiece(pieceIdFromPointerEvent(event));
   });
 
   renderPieceSelectionPanel();
+  renderPendingResultSelector();
+  renderTurnIndicator();
+  updateTurnIndicator(currentPlayer(gameState), gameState.settings.language);
 
-  // Every waiting piece is currently "legal" to select, since piece
-  // movement — which would make some pieces illegal to pick — hasn't been
-  // implemented yet (PRD.md §13). The glow mechanism itself is what this
-  // phase builds; a later phase only needs to change which ids receive it.
   function updatePieceVisuals(now) {
     const legalPulse = PIECE_LEGAL_GLOW_BASE + PIECE_LEGAL_GLOW_AMPLITUDE * (0.5 + 0.5 * Math.sin(now * 0.003));
+    // "Disable illegal pieces" only means something once there's an active
+    // choice to be illegal *against* — before any result is selected (e.g.
+    // still mid-throw, or right at game start), nothing is dimmed, it's
+    // just neutral. Dimming turns on only once selecting a result makes
+    // some pieces genuinely unusable for it.
+    const hasActiveSelection =
+      !throwSession.chainActive && selectedResultIndex !== null && Boolean(throwSession.pendingResults[selectedResultIndex]);
 
-    for (const [pieceId, { mesh }] of pieceEntriesById) {
+    for (const [pieceId, { piece, mesh }] of pieceEntriesById) {
       const isSelected = pieceId === selectedPieceId;
       const isHovered = pieceId === hoveredPieceId;
+      const isMovable = isPieceMovableNow(piece);
+      const isMoveAnimatingThisPiece = pieceMoveAnimation && pieceMoveAnimation.pieceId === pieceId;
 
-      const targetY = PIECE_REST_Y + (isSelected ? PIECE_LIFT_HEIGHT : 0);
-      mesh.position.y += (targetY - mesh.position.y) * 0.25;
+      // The move animation owns position.y (and x/z) while it's running —
+      // don't fight it with the hover-lift lerp below.
+      if (!isMoveAnimatingThisPiece) {
+        const targetY = PIECE_REST_Y + (isSelected ? PIECE_LIFT_HEIGHT : 0);
+        mesh.position.y += (targetY - mesh.position.y) * 0.25;
+      }
 
-      const targetScale = isHovered ? PIECE_HOVER_SCALE : 1;
+      const targetScale = isHovered && isMovable ? PIECE_HOVER_SCALE : 1;
       mesh.scale.x += (targetScale - mesh.scale.x) * 0.3;
       mesh.scale.y += (targetScale - mesh.scale.y) * 0.3;
       mesh.scale.z += (targetScale - mesh.scale.z) * 0.3;
 
-      let emissiveIntensity = legalPulse;
-      if (isHovered) emissiveIntensity = Math.max(emissiveIntensity, PIECE_HOVER_EMISSIVE);
+      const shouldDim = hasActiveSelection && !isMovable && piece.state !== PieceState.HOME;
+      const targetOpacity = shouldDim ? 0.45 : 1;
+      for (const material of mesh.material) {
+        material.transparent = true;
+        material.opacity += (targetOpacity - material.opacity) * 0.2;
+      }
+
+      let emissiveIntensity = isMovable ? legalPulse : 0;
+      if (isMovable && isHovered) emissiveIntensity = Math.max(emissiveIntensity, PIECE_HOVER_EMISSIVE);
       if (isSelected) emissiveIntensity = Math.max(emissiveIntensity, PIECE_SELECTED_EMISSIVE);
       for (const material of mesh.material) {
         material.emissiveIntensity = emissiveIntensity;
@@ -524,12 +748,31 @@ try {
   window.addEventListener("orientationchange", () => setTimeout(resizeRenderer, 200));
   resizeRenderer();
 
+  // DEVELOPER-ONLY introspection hook, so the test panel's forced throws can
+  // be scripted end-to-end (throw -> select result -> click piece) without a
+  // real browser session. Only exists when DEBUG_MODE is true; see the
+  // constant's declaration at the top of this file.
+  if (DEBUG_MODE) {
+    window.__debug = {
+      gameState,
+      throwSession,
+      selectPendingResult: (index) => {
+        selectedResultIndex = index;
+        refreshPendingResultUI();
+      },
+      clickPieceId: (pieceId) => selectOrMovePiece(pieceId),
+      pieceEntriesById,
+      isMoveAnimating: () => isMoveAnimating,
+    };
+  }
+
   // ---------- Render loop ----------
   let loadingMessageHidden = false;
 
   function animate(now) {
     requestAnimationFrame(animate);
     updateThrowAnimation(now);
+    updatePieceMoveAnimation(now);
     updatePieceVisuals(now);
     renderer.render(scene, camera);
 

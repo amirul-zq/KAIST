@@ -57,17 +57,91 @@ function formatResult(result) {
  * Updates the latest-result readout and the full pending-results list.
  * @param {object} latestResult  the ThrowResult just landed
  * @param {import('./gameLogic.js').ThrowSession} session
+ * @param {(ThrowResult)[]} [forfeitedResults]  results just discarded because
+ *   no piece could legally use them (PRD.md §5, "the throw is forfeited")
  */
-export function updateThrowResult(latestResult, session) {
+export function updateThrowResult(latestResult, session, forfeitedResults = []) {
   const bonusNote = latestResult.isBonus ? " — bonus throw! Throw again." : "";
   throwResultEl.textContent = `${formatResult(latestResult)}${bonusNote}`;
+  updatePendingResultsReadout(session, forfeitedResults);
+}
+
+/**
+ * Updates just the pending-moves line, without touching the "latest throw"
+ * readout above it — used after a move consumes a pending result, when
+ * nothing new was actually thrown.
+ * @param {import('./gameLogic.js').ThrowSession} session
+ * @param {(ThrowResult)[]} [forfeitedResults]
+ */
+export function updatePendingResultsReadout(session, forfeitedResults = []) {
+  const forfeitedNote =
+    forfeitedResults.length > 0
+      ? ` (${forfeitedResults.map(formatResult).join(", ")} forfeited — no legal piece)`
+      : "";
 
   pendingResultsEl.textContent =
     session.pendingResults.length > 0
       ? `Pending moves: ${session.pendingResults.map(formatResult).join(", ")}${
-          session.chainActive ? "" : " — all bonus throws finished, ready to move (not implemented yet)"
-        }`
-      : "";
+          session.chainActive ? "" : " — select a result below, then click a piece to move it"
+        }${forfeitedNote}`
+      : forfeitedNote
+        ? `No pending moves.${forfeitedNote}`
+        : "";
+}
+
+let pendingResultSelectorEl = null;
+
+/** Builds the (initially empty) clickable pending-result selector. */
+export function renderPendingResultSelector() {
+  pendingResultSelectorEl = document.createElement("div");
+  pendingResultSelectorEl.id = "pending-result-selector";
+  hudEl.appendChild(pendingResultSelectorEl);
+}
+
+/**
+ * Rebuilds the pending-result buttons. Only shown once the throw chain has
+ * settled (PRD.md "do not allow movement until all bonus throws have been
+ * completed") — pass an empty array otherwise to clear it.
+ * @param {(ThrowResult)[]} pendingResults
+ * @param {number|null} selectedIndex
+ * @param {(index: number) => void} onSelect
+ */
+export function updatePendingResultSelector(pendingResults, selectedIndex, onSelect) {
+  pendingResultSelectorEl.replaceChildren();
+  if (pendingResults.length === 0) return;
+
+  const label = document.createElement("div");
+  label.id = "pending-result-selector-label";
+  label.textContent = "Move with:";
+  pendingResultSelectorEl.appendChild(label);
+
+  pendingResults.forEach((result, index) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "pending-result-button" + (index === selectedIndex ? " selected" : "");
+    button.textContent = formatResult(result);
+    button.addEventListener("click", () => onSelect(index));
+    pendingResultSelectorEl.appendChild(button);
+  });
+}
+
+let turnIndicatorEl = null;
+
+/** Builds the (initially empty) turn indicator. */
+export function renderTurnIndicator() {
+  turnIndicatorEl = document.createElement("div");
+  turnIndicatorEl.id = "turn-indicator";
+  hudEl.appendChild(turnIndicatorEl);
+}
+
+/**
+ * @param {{ id: 'blue'|'red', nickname: string }} player  whose turn it now is
+ * @param {'en'|'ko'} [language]
+ */
+export function updateTurnIndicator(player, language = "en") {
+  if (!turnIndicatorEl) return;
+  turnIndicatorEl.textContent = t(language, "turnIndicator")(player.nickname || player.id);
+  turnIndicatorEl.className = `player-${player.id}`;
 }
 
 let pieceSelectionEl = null;
@@ -90,7 +164,9 @@ export function renderPieceSelectionPanel() {
 export function updatePieceSelectionDisplay(piece) {
   if (!pieceSelectionEl) return;
   pieceSelectionEl.textContent = piece
-    ? `Selected: ${piece.player} piece ${piece.id} — ${piece.state.toLowerCase()} (movement not implemented yet)`
+    ? `Selected: ${piece.player} piece ${piece.id} — ${piece.state.toLowerCase()}${
+        piece.position ? ` at ${piece.position}` : ""
+      }`
     : "";
 }
 
@@ -143,20 +219,6 @@ export function showSetupScreen(settings, onStart) {
 
 export function hideSetupScreen() {
   setupScreenEl.style.display = "none";
-}
-
-/**
- * Renders/updates the HUD (turn indicator, throw button, restart, mute).
- * TODO: build real DOM structure; currently a placeholder shell.
- * @param {object} state  read-only game state from gameLogic.js
- * @param {{ onThrow: () => void, onRestart: () => void }} handlers
- */
-export function renderHud(state, handlers) {
-  const { language } = state.settings;
-  const currentPlayer = state.players[state.currentPlayerIndex];
-  hudEl.textContent = t(language, "turnIndicator")(currentPlayer.nickname);
-  // TODO: throw button (disabled outside 'THROWING' phase), restart control,
-  // mute toggle, pending-throws counter — wire to handlers.onThrow / onRestart.
 }
 
 /**

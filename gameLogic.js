@@ -7,6 +7,8 @@
 //
 // Board topology comes from boardData.js and is only ever read here, not redefined.
 
+import { START_NODE_ID, PLAIN_RING_NEXT, CORNER_SHORTCUT_ENTRY, DIAGONAL_FORWARD } from "./boardData.js";
+
 /**
  * @typedef {'DO'|'GAE'|'GEOL'|'YUT'|'MO'|'BACKDO'} ThrowType
  * @typedef {Object} ThrowResult
@@ -207,12 +209,182 @@ export function recordThrow(session, result) {
 }
 
 /**
- * Applies a single pending move to a chosen piece: path resolution, catching,
- * stacking, and win/completion checks. TODO: implement (PRD.md §6, §13-16).
- * @param {object} state
- * @param {string} pieceId
+ * True while switching turns must wait: whenever more bonus throws are
+ * owed, or results are still sitting in the pending list unapplied
+ * (PRD.md §8, §18 — "do not switch turns while pending results remain" /
+ * "do not allow movement until all bonus throws have been completed").
+ * @param {ThrowSession} session
+ */
+export function isSessionSettled(session) {
+  return !session.chainActive && session.pendingResults.length === 0;
+}
+
+/**
+ * Whether `throwResult` could legally be applied to `piece` right now —
+ * independent of whose turn it is or which result is currently selected;
+ * callers combine this with that context. A HOME piece can never move
+ * again; a WAITING piece can only enter (positive value); Back-Do (negative
+ * value) needs an ACTIVE piece that has somewhere to retreat to (§16).
+ * @param {Piece} piece
  * @param {ThrowResult} throwResult
  */
-export function applyMove(state, pieceId, throwResult) {
-  throw new Error("applyMove() not implemented yet");
+export function isMoveLegal(piece, throwResult) {
+  if (piece.state === PieceState.HOME) return false;
+  if (throwResult.value < 0) {
+    return piece.state === PieceState.ACTIVE && piece.route != null;
+  }
+  return piece.state === PieceState.WAITING || piece.state === PieceState.ACTIVE;
+}
+
+/**
+ * One forward hop from `current`. Diagonal nodes (already on a shortcut)
+ * always continue along it — there is no outer-ring alternative for them.
+ * A corner (O5/O10/O15) only diverts onto its shortcut if the piece is
+ * *resting* there at the start of this move (`isRestingStart` — i.e. this
+ * is hop 0 of a fresh move, not a corner merely passed through mid-move);
+ * otherwise every node just follows the outer ring's one fixed direction.
+ * This is what makes "shortcut activates only when landing exactly on the
+ * entry point" true, rather than triggering on any pass-through.
+ * @param {string} current
+ * @param {boolean} isRestingStart
+ */
+function stepOnePlace(current, isRestingStart) {
+  if (DIAGONAL_FORWARD.has(current)) return DIAGONAL_FORWARD.get(current);
+  if (isRestingStart && CORNER_SHORTCUT_ENTRY.has(current)) return CORNER_SHORTCUT_ENTRY.get(current);
+  return PLAIN_RING_NEXT.get(current);
+}
+
+/**
+ * Walks `value` visible hops forward from `startPosition`, stopping early
+ * (without using the remaining hops) the moment home is reached — an
+ * overshoot completes the piece rather than wrapping around.
+ * @param {string} startPosition
+ * @param {number} value
+ * @returns {{ steps: string[], completed: boolean }}
+ */
+function computeForwardSteps(startPosition, value) {
+  const steps = [];
+  let current = startPosition;
+  for (let i = 0; i < value; i++) {
+    current = stepOnePlace(current, i === 0);
+    steps.push(current);
+    if (current === START_NODE_ID) return { steps, completed: true };
+  }
+  return { steps, completed: false };
+}
+
+/**
+ * Computes the ordered board nodes a piece would visit for a move, without
+ * mutating anything — the single source both applyMove (real mutation) and
+ * any "preview" rendering use, so they can never disagree.
+ * @param {Piece} piece
+ * @param {number} value  positive spaces forward, or negative for Back-Do
+ * @returns {{ steps: string[], completed: boolean, exitsToWaiting: boolean, cameFrom: string|null } | null}
+ *   null means isMoveLegal would also be false for this pairing
+ */
+function computeMovePath(piece, value) {
+  if (value > 0) {
+    if (piece.state === PieceState.WAITING) {
+      // Entering starts from START_NODE_ID; it can never be a "resting
+      // corner start" (only O5/O10/O15 are shortcut corners), so this
+      // always walks the plain outer path — a positive throw of N lands
+      // on node ON, same rule as any other forward move. cameFrom is the
+      // node just before the final rest (e.g. entering with Geol(3) visits
+      // O1,O2,O3 and rests at O3, so a later Back-Do retraces to O2 — NOT
+      // unconditionally back to START_NODE_ID, which would only be correct
+      // when the whole move was exactly 1 hop.
+      const { steps, completed } = computeForwardSteps(START_NODE_ID, value);
+      const cameFrom = steps.length >= 2 ? steps[steps.length - 2] : START_NODE_ID;
+      return { steps, completed, exitsToWaiting: false, cameFrom };
+    }
+    if (piece.state === PieceState.ACTIVE) {
+      const { steps, completed } = computeForwardSteps(piece.position, value);
+      const cameFrom = steps.length >= 2 ? steps[steps.length - 2] : piece.position;
+      return { steps, completed, exitsToWaiting: false, cameFrom };
+    }
+    return null;
+  }
+
+  // Back-Do: retrace exactly the one step this piece is recorded as having
+  // come from (piece.route). We don't keep deeper history than that, so a
+  // second consecutive Back-Do on the same piece (with no forward move in
+  // between) has nothing further to retreat to — see applyMove below.
+  if (piece.state !== PieceState.ACTIVE || piece.route == null) return null;
+  if (piece.route === START_NODE_ID) {
+    return { steps: [], completed: false, exitsToWaiting: true, cameFrom: null };
+  }
+  return { steps: [piece.route], completed: false, exitsToWaiting: false, cameFrom: null };
+}
+
+/**
+ * Applies a single pending move to a chosen piece: path resolution and
+ * completion, mutating the piece in place (PRD.md §6, §13, §16). The
+ * renderer uses the returned `steps` to animate one visible hop at a time.
+ * @param {Piece} piece
+ * @param {ThrowResult} throwResult
+ * @returns {{ ok: boolean, steps: string[], completed: boolean, exitsToWaiting: boolean }}
+ */
+export function applyMove(piece, throwResult) {
+  const path = computeMovePath(piece, throwResult.value);
+  if (!path) {
+    return { ok: false, steps: [], completed: false, exitsToWaiting: false };
+  }
+
+  if (path.exitsToWaiting) {
+    piece.state = PieceState.WAITING;
+    piece.position = null;
+    piece.route = null;
+    return { ok: true, steps: [], completed: false, exitsToWaiting: true };
+  }
+
+  if (path.completed) {
+    piece.state = PieceState.HOME;
+    piece.position = null;
+    piece.completed = true;
+    piece.route = null;
+    return { ok: true, steps: path.steps, completed: true, exitsToWaiting: false };
+  }
+
+  piece.state = PieceState.ACTIVE;
+  piece.position = path.steps[path.steps.length - 1];
+  piece.route = path.cameFrom;
+  return { ok: true, steps: path.steps, completed: false, exitsToWaiting: false };
+}
+
+/**
+ * Removes any pending results that no piece in `pieces` could legally use
+ * (e.g. a Back-Do drawn when every piece is WAITING or HOME) — the "throw
+ * is forfeited" rule (PRD.md §5). Call after every throw and after every
+ * applied move, since a move can make an *other* pending result newly
+ * unusable (e.g. its only eligible piece just finished or left the board).
+ * @param {ThrowSession} session
+ * @param {Piece[]} pieces  the current player's pieces
+ * @returns {(ThrowResult & { stickStates: boolean[] })[]} the results that were discarded
+ */
+export function pruneUnusableResults(session, pieces) {
+  const kept = [];
+  const discarded = [];
+  for (const result of session.pendingResults) {
+    (pieces.some((piece) => isMoveLegal(piece, result)) ? kept : discarded).push(result);
+  }
+  session.pendingResults = kept;
+  return discarded;
+}
+
+/**
+ * Advances to the other player once the session is fully settled (PRD.md
+ * §18). Safe to call at any time — it only switches when appropriate.
+ * @param {object} gameState
+ * @param {ThrowSession} session
+ * @returns {boolean} whether it actually switched
+ */
+export function maybeSwitchTurn(gameState, session) {
+  if (!isSessionSettled(session)) return false;
+  gameState.currentPlayerIndex = (gameState.currentPlayerIndex + 1) % gameState.players.length;
+  return true;
+}
+
+/** @returns {object} the player object whose turn it currently is */
+export function currentPlayer(gameState) {
+  return gameState.players[gameState.currentPlayerIndex];
 }

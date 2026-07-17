@@ -136,3 +136,37 @@ export function findUnreachableNodeIds() {
   }
   return BOARD_NODES.map((node) => node.id).filter((id) => !visited.has(id));
 }
+
+// ---------- Directed forward-travel data ----------
+// Gameplay direction is NOT simply "whichever neighbor is closer to home" —
+// the outer ring only ever travels in one rotational direction (O_i ->
+// O_i+1), never backward along the ring, and a shortcut only diverts a
+// piece if the corner is exactly where it *rests* between moves, not merely
+// passed through mid-move (see gameLogic.js's stepOnePlace, the actual
+// consumer of these three lookups, for how "landing exactly on" is
+// resolved). These are three separate, explicit pieces of data — not one
+// derived shortest-path table — because gameplay direction is a rule
+// decision, not a property the raw graph can infer on its own.
+
+/** O_i -> O_(i+1 mod 20): the outer ring's one fixed travel direction. */
+export const PLAIN_RING_NEXT = (function computePlainRingNext() {
+  const map = new Map();
+  for (let i = 0; i < 20; i++) map.set(`O${i}`, `O${(i + 1) % 20}`);
+  return map;
+})();
+
+/** Corners where resting there sends the *next* move onto the shortcut instead of the outer ring. */
+export const CORNER_SHORTCUT_ENTRY = new Map([
+  ["O5", "D5"],
+  ["O10", "D10"],
+  ["O15", "D15"],
+]);
+
+/** Once on a diagonal node, there is no outer-ring alternative — always this. */
+export const DIAGONAL_FORWARD = new Map([
+  ["D5", "C"],
+  ["D10", "C"],
+  ["D15", "C"],
+  ["C", "D0"],
+  ["D0", START_NODE_ID],
+]);

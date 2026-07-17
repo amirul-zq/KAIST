@@ -90,6 +90,63 @@ html, body {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
 
+/* ---------- Turn indicator (Phase 5) ---------- */
+#turn-indicator {
+  position: fixed;
+  top: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.5rem 1.25rem;
+  font-size: 1.15rem;
+  font-weight: bold;
+  border-radius: 0.5rem;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+#turn-indicator.player-blue {
+  background: rgba(43, 95, 214, 0.35);
+  border: 2px solid #2b5fd6;
+}
+
+#turn-indicator.player-red {
+  background: rgba(214, 57, 43, 0.35);
+  border: 2px solid #d6392b;
+}
+
+/* ---------- Pending-result selector (Phase 5) ---------- */
+#pending-result-selector {
+  position: fixed;
+  left: 50%;
+  bottom: 8rem;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#pending-result-selector-label {
+  font-size: 0.85rem;
+  color: #d8cdb8;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+
+.pending-result-button {
+  padding: 0.4rem 0.9rem;
+  font-size: 0.95rem;
+  border: 2px solid #dac48e;
+  border-radius: 0.4rem;
+  background: rgba(20, 15, 5, 0.75);
+  color: #f1e6c8;
+  cursor: pointer;
+}
+
+.pending-result-button.selected {
+  background: #dba233;
+  color: #241505;
+  border-color: #f1e6c8;
+}
+
 /* ---------- Piece selection info (Phase 4) ---------- */
 #piece-selection-info {
   position: fixed;
