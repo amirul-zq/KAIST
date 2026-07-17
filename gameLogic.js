@@ -52,14 +52,84 @@ function makeStartingPieces(ownerId) {
   }));
 }
 
+// Index (0-3) of the one stick that carries the Back-Do mark. Shared with
+// main.js so the visual "marked" stick and the rule-determining "marked"
+// stick can never drift apart — see PRD.md §5's Do-vs-Back-Do note.
+export const BACK_DO_STICK_INDEX = 3;
+
 /**
  * Randomly throws the 4 yut sticks and maps the result to a ThrowType.
- * TODO: implement real stick randomization + Do/Back-do disambiguation
- * (PRD.md §5) — currently a stub.
- * @returns {ThrowResult}
+ * Each stick independently lands flat-up or round-up; the *count* of
+ * flat-up sticks gives Do/Gae/Geol/Yut/Mo, except when exactly one stick
+ * is flat: then it's Do unless that one flat stick is specifically the
+ * marked (Back-Do) stick, in which case it's Back-Do instead (PRD.md §5).
+ * @returns {ThrowResult & { stickStates: boolean[] }} stickStates[i] is true
+ *   when stick i landed flat-up — the renderer uses this to show the exact
+ *   sides that produced the result, never an independent random animation.
  */
 export function throwSticks() {
-  throw new Error("throwSticks() not implemented yet");
+  const stickStates = Array.from({ length: 4 }, () => Math.random() < 0.5);
+  const flatCount = stickStates.filter(Boolean).length;
+
+  let type;
+  let value;
+  let isBonus;
+
+  if (flatCount === 0) {
+    type = "MO";
+    value = 5;
+    isBonus = true;
+  } else if (flatCount === 4) {
+    type = "YUT";
+    value = 4;
+    isBonus = true;
+  } else if (flatCount === 1) {
+    const isMarkedStickFlat = stickStates[BACK_DO_STICK_INDEX];
+    type = isMarkedStickFlat ? "BACKDO" : "DO";
+    value = isMarkedStickFlat ? -1 : 1;
+    isBonus = false;
+  } else if (flatCount === 2) {
+    type = "GAE";
+    value = 2;
+    isBonus = false;
+  } else {
+    type = "GEOL";
+    value = 3;
+    isBonus = false;
+  }
+
+  return { type, value, isBonus, stickStates };
+}
+
+/**
+ * @typedef {Object} ThrowSession
+ * @property {(ThrowResult & { stickStates: boolean[] })[]} pendingResults  results
+ *   accumulated so far this turn, in the order they were earned
+ * @property {boolean} chainActive  true while another throw is still owed
+ *   (i.e. the most recent throw was a bonus) — piece movement must wait
+ *   until this is false (PRD.md §8, "complete all bonus throws before movement")
+ */
+
+/** @returns {ThrowSession} */
+export function createThrowSession() {
+  return { pendingResults: [], chainActive: false };
+}
+
+/**
+ * Records a throw into the session, enforcing the bonus-chain rule: if the
+ * previous chain had already finished (chainActive was false), this throw
+ * starts a fresh pending list rather than appending to a stale one.
+ * @param {ThrowSession} session
+ * @param {ThrowResult & { stickStates: boolean[] }} result
+ * @returns {ThrowSession} the same session, mutated in place
+ */
+export function recordThrow(session, result) {
+  if (!session.chainActive) {
+    session.pendingResults = [];
+  }
+  session.pendingResults.push(result);
+  session.chainActive = result.isBonus;
+  return session;
 }
 
 /**

@@ -1,12 +1,15 @@
 // main.js
 //
-// Phase 2: adds the static 3D board on top of the Phase 1 scene. All spaces,
-// their positions, and their connections come from boardData.js — this file
-// only turns that data into meshes; it does not invent any board layout of
-// its own. No pieces, no interaction, no game logic yet (PRD.md §20-21).
+// Phase 3 adds the four 3D Yut sticks and the throw button on top of the
+// Phase 1/2 scene+board. All spaces still come from boardData.js; the throw
+// outcome itself is computed by gameLogic.js's throwSticks() (pure logic,
+// no THREE) — this file only turns that result into a stick animation and
+// wires the button through ui.js. No pieces, no piece movement yet.
 
 import * as THREE from "three";
 import { BOARD_NODES, BOARD_EDGES, BOARD_NODES_BY_ID, OUTER_RING_HALF_SIZE, findUnreachableNodeIds } from "./boardData.js";
+import { throwSticks, createThrowSession, recordThrow, BACK_DO_STICK_INDEX } from "./gameLogic.js";
+import { renderThrowControls, setThrowButtonEnabled, updateThrowResult } from "./ui.js";
 
 const canvas = document.getElementById("scene-canvas");
 const loadingMessageEl = document.getElementById("loading-message");
@@ -28,6 +31,26 @@ const COLOR_MARKER_SHORTCUT = 0xa4322a; // diagonal nodes + center — the "spec
 const COLOR_MARKER_PLAIN = 0xf1e6c8; // ordinary outer-ring spaces
 const COLOR_PATH = 0x6b4a2c;
 const COLOR_FLOOR = 0x082018;
+
+// ---------- Yut stick visual constants ----------
+const STICK_LENGTH = 1.6;
+const STICK_RADIUS = 0.15;
+const STICK_RADIAL_SEGMENTS = 16;
+const STICK_FLAT_THICKNESS = 0.03;
+const COLOR_STICK_ROUND = 0x8a5a34; // rounded outer (bark-toned) side
+const COLOR_STICK_FLAT = 0xf1e6c8; // plain flat side
+const COLOR_STICK_FLAT_MARKED = 0xdba233; // the Back-Do stick's flat side gets its own tone...
+const COLOR_STICK_MARK_DOT = 0x1a0f08; // ...plus a small dark dot, so it reads clearly either way
+
+// Sticks lie with their length along world X, so they must be spread apart
+// along Z (perpendicular to that length) — spreading along X instead would
+// make 1.6-unit-long sticks overlap almost entirely.
+const STICK_SLOT_Z_OFFSETS = [-0.6, -0.2, 0.2, 0.6];
+const STICK_BASE_X = 0;
+const STICK_BASE_Z = 4.4; // toward the near edge, off the board's center X pattern for clarity
+const STICK_REST_Y = 1.4;
+const STICK_DROP_HEIGHT = 1.6; // how far above rest height sticks hover at the start of a throw
+const THROW_DURATION_MS = 900;
 
 // Wrapped in try/catch so a runtime failure (e.g. WebGL unsupported) reports
 // itself in the loading message instead of leaving the page silently blank —
@@ -169,6 +192,138 @@ try {
     console.log(`Board graph OK: all ${BOARD_NODES.length} nodes reachable from start.`);
   }
 
+  // ---------- Yut sticks ----------
+  // Each stick is a half-round cylinder (the rounded side) plus a thin box
+  // filling the flat cut face (the flat side), wrapped in three nested
+  // groups with one job each:
+  //   rollGroup      — rotated around its own length axis to show flat-up
+  //                    vs round-up, and to tumble during the throw
+  //   layFlatGroup   — fixed rotation that lays the stick down horizontally;
+  //                    never animated
+  //   placementGroup — fixed X/Z slot position; its Y is animated for the
+  //                    "drop from above" part of the throw
+  function createStickMesh(isMarked) {
+    const rollGroup = new THREE.Group();
+
+    const roundMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(STICK_RADIUS, STICK_RADIUS, STICK_LENGTH, STICK_RADIAL_SEGMENTS, 1, false, 0, Math.PI),
+      new THREE.MeshStandardMaterial({ color: COLOR_STICK_ROUND, roughness: 0.7 })
+    );
+    rollGroup.add(roundMesh);
+
+    // The half-cylinder's flat cut face lies in the local x=0 plane, with
+    // the round bulge on the +x side — so the flat filler box sits just
+    // inside x<0, flush against that cut.
+    const flatMesh = new THREE.Mesh(
+      new THREE.BoxGeometry(STICK_FLAT_THICKNESS, STICK_LENGTH, STICK_RADIUS * 2),
+      new THREE.MeshStandardMaterial({ color: isMarked ? COLOR_STICK_FLAT_MARKED : COLOR_STICK_FLAT, roughness: 0.5 })
+    );
+    flatMesh.position.x = -STICK_FLAT_THICKNESS / 2;
+    rollGroup.add(flatMesh);
+
+    if (isMarked) {
+      // Small dark dot marking this as the Back-Do stick (PRD.md §5) —
+      // visible whenever the flat side is showing, in addition to its
+      // distinct flat-side color above.
+      const markMesh = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.045, 0.045, 0.01, 12),
+        new THREE.MeshStandardMaterial({ color: COLOR_STICK_MARK_DOT })
+      );
+      markMesh.rotation.z = Math.PI / 2; // lay the little disc flat against the flat face
+      markMesh.position.x = -STICK_FLAT_THICKNESS - 0.005;
+      rollGroup.add(markMesh);
+    }
+
+    rollGroup.traverse((child) => {
+      if (child.isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+
+    const layFlatGroup = new THREE.Group();
+    layFlatGroup.rotation.z = -Math.PI / 2; // lay the stick horizontal; fixed, never animated
+    layFlatGroup.add(rollGroup);
+
+    const placementGroup = new THREE.Group();
+    placementGroup.add(layFlatGroup);
+
+    return { placementGroup, rollGroup };
+  }
+
+  const sticks = STICK_SLOT_Z_OFFSETS.map((zOffset, i) => {
+    const stick = createStickMesh(i === BACK_DO_STICK_INDEX);
+    stick.placementGroup.position.set(STICK_BASE_X, STICK_REST_Y, STICK_BASE_Z + zOffset);
+    scene.add(stick.placementGroup);
+    return stick;
+  });
+
+  // restRoll: 0 = flat-up, Math.PI = round-up (derived from the geometry
+  // above: with no extra roll, the flat face ends up on top; a half turn
+  // around the stick's own length axis swaps it to round-up).
+  function setStickRestState(stickStates) {
+    sticks.forEach((stick, i) => {
+      stick.rollGroup.rotation.y = stickStates[i] ? 0 : Math.PI;
+      stick.placementGroup.position.y = STICK_REST_Y;
+    });
+  }
+  setStickRestState([false, false, false, false]); // idle pose before the first throw: all round-up
+
+  // ---------- Throw animation + click handling ----------
+  const throwSession = createThrowSession();
+  let isThrowAnimating = false;
+  let throwAnimation = null; // { startTime, stickStates, extraSpins, onComplete }
+
+  function startThrowAnimation(stickStates, onComplete) {
+    throwAnimation = {
+      startTime: performance.now(),
+      stickStates,
+      // Each stick gets a slightly different number of extra full turns so
+      // they don't spin in lockstep; being whole multiples of 2*PI, these
+      // never affect the final resting angle.
+      extraSpins: stickStates.map(() => (3 + Math.random() * 3) * Math.PI * 2),
+      onComplete,
+    };
+  }
+
+  function updateThrowAnimation(now) {
+    if (!throwAnimation) return;
+    const { startTime, stickStates, extraSpins, onComplete } = throwAnimation;
+    const t = Math.min((now - startTime) / THROW_DURATION_MS, 1);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic: fast tumble settling smoothly to rest
+
+    sticks.forEach((stick, i) => {
+      const restRoll = stickStates[i] ? 0 : Math.PI;
+      stick.rollGroup.rotation.y = restRoll + extraSpins[i] * (1 - eased);
+      stick.placementGroup.position.y = STICK_REST_Y + (1 - eased) * STICK_DROP_HEIGHT;
+    });
+
+    if (t >= 1) {
+      throwAnimation = null;
+      onComplete();
+    }
+  }
+
+  function handleThrowClick() {
+    if (isThrowAnimating) return; // prevent double-clicking during the animation
+    isThrowAnimating = true;
+    setThrowButtonEnabled(false);
+
+    // The result is decided immediately — the animation only reveals it —
+    // so "result calculated from the four visible stick sides" and the
+    // sticks the player sees settle are always the exact same stickStates.
+    const result = throwSticks();
+
+    startThrowAnimation(result.stickStates, () => {
+      recordThrow(throwSession, result);
+      updateThrowResult(result, throwSession);
+      isThrowAnimating = false;
+      setThrowButtonEnabled(true);
+    });
+  }
+
+  renderThrowControls({ onThrowClick: handleThrowClick });
+
   // ---------- Resize handling ----------
   // Pixel ratio is capped at 2 rather than used raw (phones commonly report
   // 3+), since rendering that many physical pixels per CSS pixel — on top of
@@ -206,8 +361,9 @@ try {
   // ---------- Render loop ----------
   let loadingMessageHidden = false;
 
-  function animate() {
+  function animate(now) {
     requestAnimationFrame(animate);
+    updateThrowAnimation(now);
     renderer.render(scene, camera);
 
     // Hide the loading message once the first real frame has been drawn.
@@ -216,7 +372,7 @@ try {
       loadingMessageEl.style.display = "none";
     }
   }
-  animate();
+  animate(performance.now());
 } catch (err) {
   console.error("Failed to initialize the 3D scene:", err);
   loadingMessageEl.textContent = "Failed to start the 3D scene — see the browser console for details.";

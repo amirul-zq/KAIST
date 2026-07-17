@@ -6,10 +6,69 @@
 // it only reads state to display it, matching PRD.md §19 ("UI logic separate
 // from game logic and rendering").
 
-import { t } from "./i18n.js";
+import { t, throwResultLabel } from "./i18n.js";
 
 const setupScreenEl = document.getElementById("setup-screen");
 const hudEl = document.getElementById("hud");
+
+let throwButtonEl = null;
+let throwResultEl = null;
+let pendingResultsEl = null;
+
+/**
+ * Builds the throw-stick controls (button, latest-result readout, pending
+ * list) once and appends them to the HUD. Phase 3 only — not tied to the
+ * full turn/player state from createInitialState yet.
+ * @param {{ onThrowClick: () => void }} handlers
+ */
+export function renderThrowControls({ onThrowClick }) {
+  const panel = document.createElement("div");
+  panel.id = "throw-panel";
+
+  throwButtonEl = document.createElement("button");
+  throwButtonEl.id = "throw-button";
+  throwButtonEl.type = "button";
+  throwButtonEl.textContent = t("en", "throwSticks");
+  throwButtonEl.addEventListener("click", onThrowClick);
+  panel.appendChild(throwButtonEl);
+
+  throwResultEl = document.createElement("div");
+  throwResultEl.id = "throw-result";
+  panel.appendChild(throwResultEl);
+
+  pendingResultsEl = document.createElement("div");
+  pendingResultsEl.id = "pending-results";
+  panel.appendChild(pendingResultsEl);
+
+  hudEl.appendChild(panel);
+}
+
+/** Disable the throw button while an animation is in flight, to prevent double clicks. */
+export function setThrowButtonEnabled(enabled) {
+  if (!throwButtonEl) return;
+  throwButtonEl.disabled = !enabled;
+}
+
+function formatResult(result) {
+  return `${throwResultLabel("en", result.type)} (${result.value})`;
+}
+
+/**
+ * Updates the latest-result readout and the full pending-results list.
+ * @param {object} latestResult  the ThrowResult just landed
+ * @param {import('./gameLogic.js').ThrowSession} session
+ */
+export function updateThrowResult(latestResult, session) {
+  const bonusNote = latestResult.isBonus ? " — bonus throw! Throw again." : "";
+  throwResultEl.textContent = `${formatResult(latestResult)}${bonusNote}`;
+
+  pendingResultsEl.textContent =
+    session.pendingResults.length > 0
+      ? `Pending moves: ${session.pendingResults.map(formatResult).join(", ")}${
+          session.chainActive ? "" : " — all bonus throws finished, ready to move (not implemented yet)"
+        }`
+      : "";
+}
 
 /**
  * Renders the pre-game setup screen (nickname / language / face selection).

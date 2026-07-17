@@ -39,3 +39,19 @@ export function t(language, key) {
   const dict = STRINGS[language] ?? STRINGS.en;
   return dict[key] ?? STRINGS.en[key];
 }
+
+// Display names for each throw outcome (PRD.md §5). Separate from STRINGS
+// since these are keyed by ThrowType, not by a fixed set of UI labels.
+const THROW_RESULT_NAMES = {
+  en: { DO: "Do", GAE: "Gae", GEOL: "Geol", YUT: "Yut", MO: "Mo", BACKDO: "Back Do" },
+  ko: { DO: "도", GAE: "개", GEOL: "걸", YUT: "윷", MO: "모", BACKDO: "백도" },
+};
+
+/**
+ * @param {'en'|'ko'} language
+ * @param {'DO'|'GAE'|'GEOL'|'YUT'|'MO'|'BACKDO'} throwType
+ */
+export function throwResultLabel(language, throwType) {
+  const dict = THROW_RESULT_NAMES[language] ?? THROW_RESULT_NAMES.en;
+  return dict[throwType] ?? throwType;
+}
