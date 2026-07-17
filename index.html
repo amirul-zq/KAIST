@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Yutnori 3D</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Pre-game setup overlay (nickname / language / piece face) — populated by ui.js -->
+  <div id="setup-screen"></div>
+
+  <!-- 3D scene target: Three.js renders into this canvas, nothing else touches it -->
+  <canvas id="scene-canvas"></canvas>
+
+  <!-- HUD overlay (turn indicator, throw button, restart, mute) — populated by ui.js -->
+  <div id="hud"></div>
+
+  <!--
+    Three.js is loaded from a CDN via an import map, so no bundler/build step is needed.
+    Requires an internet connection; for fully offline use, download the module build
+    into a local folder (e.g. assets/vendor/three.module.js) and update the path below.
+  -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+    }
+  }
+  </script>
+
+  <!-- Entry point; all other modules are imported from here -->
+  <script type="module" src="main.js"></script>
+</body>
+</html>
