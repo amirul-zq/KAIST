@@ -1,10 +1,11 @@
 // main.js
 //
 // Phase 5 adds piece movement on top of the Phase 1-4 scene, board, sticks,
-// and pieces. All movement rules (legal moves, path resolution, shortcuts,
-// completion, turn switching) live in gameLogic.js — this file only reads
-// its results, animates one visible hop at a time, and calls applyMove()
-// when the player clicks a legal piece. No catching, no stacking yet.
+// and pieces. Phase 6 adds catching and stacking on top of that. All rules
+// (legal moves, path resolution, shortcuts, completion, catching, stacking,
+// turn switching) live in gameLogic.js — this file only reads its results,
+// animates one visible hop at a time (a whole stack moves in lockstep, one
+// click), and calls applyMove() when the player clicks a legal piece.
 
 import * as THREE from "three";
 import { BOARD_NODES, BOARD_EDGES, BOARD_NODES_BY_ID, OUTER_RING_HALF_SIZE, findUnreachableNodeIds } from "./boardData.js";
@@ -16,6 +17,8 @@ import {
   createInitialState,
   applyMove,
   isMoveLegal,
+  stackMembers,
+  grantBonusThrow,
   pruneUnusableResults,
   maybeSwitchTurn,
   currentPlayer,
@@ -34,6 +37,8 @@ import {
   updatePendingResultSelector,
   renderTurnIndicator,
   updateTurnIndicator,
+  renderMoveOutcomePanel,
+  updateMoveOutcome,
 } from "./ui.js";
 
 // DEVELOPER TEST PANEL SWITCH — must be `false` before submission.
@@ -117,6 +122,11 @@ const COLOR_FINISH_PLATFORM = 0xdba233;
 // ---------- Movement animation constants ----------
 const MOVE_STEP_DURATION_MS = 320; // one visible hop
 const MOVE_HOP_ARC_HEIGHT = 0.22;
+
+// ---------- Catching / stacking visual constants (Phase 6) ----------
+const KNOCKBACK_DURATION_MS = 420; // a caught piece's flight back to its waiting slot
+const KNOCKBACK_ARC_HEIGHT = 0.4; // higher than a normal hop's arc — reads as more forceful
+const STACK_OFFSET_RADIUS = 0.22; // how far stacked pieces sitting on one node spread apart
 
 // Wrapped in try/catch so a runtime failure (e.g. WebGL unsupported) reports
 // itself in the loading message instead of leaving the page silently blank —
@@ -374,7 +384,7 @@ try {
   // can never diverge in how a result gets animated, recorded, or displayed
   // — only where the ThrowResult itself came from differs.
   function processThrowResult(result) {
-    if (isThrowAnimating || isMoveAnimating) return; // prevent double-clicking during any animation
+    if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0) return; // prevent double-clicking during any animation
     isThrowAnimating = true;
     setThrowButtonEnabled(false);
 
@@ -501,19 +511,20 @@ try {
 
   // ---------- Piece movement animation ----------
   let isMoveAnimating = false;
-  let pieceMoveAnimation = null; // { pieceId, waypoints: {x,z}[], segmentIndex, segmentStartTime, onComplete }
+  // { members: { pieceId, waypoints: {x,z}[] }[], segmentIndex, segmentStartTime, onComplete }
+  // A stack's members travel in lockstep — same number of waypoints, same
+  // per-segment timing — so one segmentIndex/segmentStartTime drives every
+  // member; only their individual waypoint coordinates differ (each keeps
+  // its own "from" starting point, and its own personal waiting/finish slot
+  // for the exitsToWaiting/completed cases).
+  let pieceMoveAnimation = null;
 
   function worldXZForNode(nodeId) {
     const { x, z } = BOARD_NODES_BY_ID.get(nodeId).worldPosition;
     return { x, z };
   }
 
-  /**
-   * Builds the hop-by-hop waypoint list for outcome (from applyMove) and
-   * starts animating the piece's mesh along it, one visible space at a
-   * time (PRD.md "move one visible space at a time, animate each step").
-   */
-  function animatePieceMove(entry, outcome, onComplete) {
+  function waypointsForGroupMember(entry, outcome, finishSlotIndex) {
     const waypoints = [{ x: entry.mesh.position.x, z: entry.mesh.position.z }];
 
     if (outcome.exitsToWaiting) {
@@ -521,13 +532,35 @@ try {
     } else {
       for (const nodeId of outcome.steps) waypoints.push(worldXZForNode(nodeId));
       if (outcome.completed) {
-        waypoints.push(finishAreaSlotPosition(entry.piece.player, countHomePieces(entry.piece.player) - 1));
+        waypoints.push(finishAreaSlotPosition(entry.piece.player, finishSlotIndex));
       }
     }
+    return waypoints;
+  }
+
+  /**
+   * Builds the hop-by-hop waypoint list for `outcome` (from applyMove) for
+   * every entry in `groupEntries` — a lone piece, or a whole stack moving
+   * together (PRD.md §15) — and starts animating all their meshes along it
+   * in lockstep, one visible space at a time (PRD.md "move one visible
+   * space at a time, animate each step").
+   * @param {{piece, mesh, slotIndex}[]} groupEntries
+   * @param {ReturnType<typeof applyMove>} outcome
+   * @param {number} homeCountBeforeMove  this player's completed-piece count
+   *   *before* this move — completing pieces are assigned consecutive
+   *   finish slots (homeCountBeforeMove, +1, +2, ...) by sorted piece id, so
+   *   a multi-piece stack finishing together doesn't pile every member onto
+   *   the same finish slot.
+   */
+  function animateGroupMove(groupEntries, outcome, homeCountBeforeMove, onComplete) {
+    const sortedEntries = [...groupEntries].sort((a, b) => (a.piece.id < b.piece.id ? -1 : 1));
+    const members = sortedEntries.map((entry, index) => ({
+      pieceId: entry.piece.id,
+      waypoints: waypointsForGroupMember(entry, outcome, homeCountBeforeMove + index),
+    }));
 
     pieceMoveAnimation = {
-      pieceId: entry.piece.id,
-      waypoints,
+      members,
       segmentIndex: 0,
       segmentStartTime: performance.now(),
       onComplete,
@@ -537,23 +570,97 @@ try {
   function updatePieceMoveAnimation(now) {
     if (!pieceMoveAnimation) return;
     const anim = pieceMoveAnimation;
-    const mesh = pieceEntriesById.get(anim.pieceId).mesh;
-    const from = anim.waypoints[anim.segmentIndex];
-    const to = anim.waypoints[anim.segmentIndex + 1];
     const t = Math.min((now - anim.segmentStartTime) / MOVE_STEP_DURATION_MS, 1);
 
-    mesh.position.x = from.x + (to.x - from.x) * t;
-    mesh.position.z = from.z + (to.z - from.z) * t;
-    mesh.position.y = PIECE_REST_Y + Math.sin(t * Math.PI) * MOVE_HOP_ARC_HEIGHT;
+    for (const member of anim.members) {
+      const mesh = pieceEntriesById.get(member.pieceId).mesh;
+      const from = member.waypoints[anim.segmentIndex];
+      const to = member.waypoints[anim.segmentIndex + 1];
+      mesh.position.x = from.x + (to.x - from.x) * t;
+      mesh.position.z = from.z + (to.z - from.z) * t;
+      mesh.position.y = PIECE_REST_Y + Math.sin(t * Math.PI) * MOVE_HOP_ARC_HEIGHT;
+    }
 
     if (t >= 1) {
       anim.segmentIndex += 1;
-      anim.segmentStartTime = now;
-      if (anim.segmentIndex >= anim.waypoints.length - 1) {
-        mesh.position.set(to.x, PIECE_REST_Y, to.z); // snap exactly, clear the hop-arc residue
+      const isLastSegment = anim.segmentIndex >= anim.members[0].waypoints.length - 1;
+      if (isLastSegment) {
+        for (const member of anim.members) {
+          const mesh = pieceEntriesById.get(member.pieceId).mesh;
+          const to = member.waypoints[member.waypoints.length - 1];
+          mesh.position.set(to.x, PIECE_REST_Y, to.z); // snap exactly, clear the hop-arc residue
+        }
         pieceMoveAnimation = null;
         anim.onComplete();
+      } else {
+        anim.segmentStartTime = now;
       }
+    }
+  }
+
+  // ---------- Catching / stacking visuals (Phase 6) ----------
+  // Independent of pieceMoveAnimation above so a caught piece's (or several,
+  // for a caught stack) knock-back flight never blocks or gets blocked by
+  // the mover's own hop animation.
+  let knockbackAnimations = []; // { pieceId, from: {x,z}, to: {x,z}, startTime }[]
+
+  function startKnockbackAnimation(pieceId, from, to) {
+    knockbackAnimations.push({ pieceId, from, to, startTime: performance.now() });
+  }
+
+  function updateKnockbackAnimations(now) {
+    if (knockbackAnimations.length === 0) return;
+    knockbackAnimations = knockbackAnimations.filter((anim) => {
+      const mesh = pieceEntriesById.get(anim.pieceId).mesh;
+      const t = Math.min((now - anim.startTime) / KNOCKBACK_DURATION_MS, 1);
+      const eased = 1 - Math.pow(1 - t, 2); // ease-out: fast departure, softer landing
+      mesh.position.x = anim.from.x + (anim.to.x - anim.from.x) * eased;
+      mesh.position.z = anim.from.z + (anim.to.z - anim.from.z) * eased;
+      mesh.position.y = PIECE_REST_Y + Math.sin(t * Math.PI) * KNOCKBACK_ARC_HEIGHT;
+      if (t < 1) return true;
+      mesh.position.set(anim.to.x, PIECE_REST_Y, anim.to.z);
+      return false;
+    });
+    // canThrowNow()/isPieceMovableNow() both gate on knockbackAnimations —
+    // but the throw button's disabled attribute is only ever set explicitly,
+    // not re-derived every frame, so once the last knockback lands it needs
+    // an explicit refresh or the button would stay disabled with nothing
+    // left to wait for (refreshPendingResultUI is declared later in this
+    // file but hoisted, since it's a function declaration).
+    if (knockbackAnimations.length === 0) refreshPendingResultUI();
+  }
+
+  function stackOffsetXZ(indexInGroup, groupSize) {
+    if (groupSize <= 1) return { x: 0, z: 0 };
+    const angle = (indexInGroup / groupSize) * Math.PI * 2;
+    return { x: Math.cos(angle) * STACK_OFFSET_RADIUS, z: Math.sin(angle) * STACK_OFFSET_RADIUS };
+  }
+
+  /**
+   * Snaps every ACTIVE piece's mesh to a small non-overlapping arrangement
+   * around its board node — a single piece sits dead-center, but 2+ pieces
+   * sharing a node (a stack, PRD.md §15) spread into a little cluster so
+   * "there's more than one piece here" is visually obvious at rest. Cheap
+   * enough (≤8 pieces) to just recompute from scratch after every move
+   * rather than track deltas.
+   */
+  function applyStackVisualOffsets() {
+    const groupsByPosition = new Map();
+    for (const { piece } of pieceEntriesById.values()) {
+      if (piece.state !== PieceState.ACTIVE) continue;
+      if (!groupsByPosition.has(piece.position)) groupsByPosition.set(piece.position, []);
+      groupsByPosition.get(piece.position).push(piece);
+    }
+
+    for (const [nodeId, pieces] of groupsByPosition) {
+      const { x: baseX, z: baseZ } = worldXZForNode(nodeId);
+      const sorted = [...pieces].sort((a, b) => (a.id < b.id ? -1 : 1));
+      sorted.forEach((piece, index) => {
+        const { x: offX, z: offZ } = stackOffsetXZ(index, sorted.length);
+        const mesh = pieceEntriesById.get(piece.id).mesh;
+        mesh.position.x = baseX + offX;
+        mesh.position.z = baseZ + offZ;
+      });
     }
   }
 
@@ -561,7 +668,14 @@ try {
   let selectedResultIndex = null;
 
   function canThrowNow() {
-    return !isThrowAnimating && !isMoveAnimating && throwSession.pendingResults.length === 0;
+    if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0) return false;
+    // Throwing is legal in two situations: nothing is pending yet (a fresh
+    // turn, or right after every pending move has been applied), OR a bonus
+    // throw is actively owed (Yut/Mo, or a catch via grantBonusThrow) —
+    // that second case still has the earned-but-unapplied result(s) sitting
+    // in pendingResults, so checking pendingResults.length alone would
+    // leave the button disabled exactly when the bonus throw is due.
+    return throwSession.chainActive || throwSession.pendingResults.length === 0;
   }
 
   // The pending-result selector is only ever shown once the whole bonus
@@ -603,7 +717,7 @@ try {
 
   /** Whether clicking this piece right now would actually execute a move. */
   function isPieceMovableNow(piece) {
-    if (isThrowAnimating || isMoveAnimating) return false;
+    if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0) return false;
     if (throwSession.chainActive) return false;
     if (selectedResultIndex === null) return false;
     const result = throwSession.pendingResults[selectedResultIndex];
@@ -633,8 +747,9 @@ try {
     }
 
     const entry = pieceEntriesById.get(pieceId);
+    const allPiecesNow = gameState.players.flatMap((p) => p.pieces);
     selectedPieceId = pieceId; // always usable to inspect a piece, own or opponent's
-    updatePieceSelectionDisplay(entry.piece);
+    updatePieceSelectionDisplay(entry.piece, stackMembers(entry.piece, allPiecesNow).length);
 
     if (!isPieceMovableNow(entry.piece)) return;
 
@@ -643,13 +758,39 @@ try {
     isMoveAnimating = true;
     setThrowButtonEnabled(false);
 
-    const outcome = applyMove(entry.piece, result);
-    animatePieceMove(entry, outcome, () => {
+    // Captured before applyMove mutates anything: which pieces travel
+    // together (this piece's stack-mates, if any), and how many of this
+    // player's pieces were already Home — the latter reserves consecutive
+    // finish slots for a stack that completes together (see
+    // animateGroupMove's homeCountBeforeMove param).
+    const group = stackMembers(entry.piece, allPiecesNow);
+    const groupEntries = group.map((p) => pieceEntriesById.get(p.id));
+    const homeCountBeforeMove = countHomePieces(entry.piece.player);
+
+    const outcome = applyMove(entry.piece, result, allPiecesNow);
+
+    animateGroupMove(groupEntries, outcome, homeCountBeforeMove, () => {
       isMoveAnimating = false;
       throwSession.pendingResults.splice(resultIndex, 1); // consume exactly the result that was used
       selectedResultIndex = null;
       selectedPieceId = null;
       updatePieceSelectionDisplay(null);
+
+      // Caught opponent piece(s) fly back to their own waiting slot from
+      // wherever they're currently rendered — a knock-back animation
+      // independent of the mover's own hop animation (PRD.md §14, §26).
+      for (const caughtId of outcome.caughtPieceIds) {
+        const caughtEntry = pieceEntriesById.get(caughtId);
+        const from = { x: caughtEntry.mesh.position.x, z: caughtEntry.mesh.position.z };
+        const to = waitingAreaSlotPosition(caughtEntry.piece.player, caughtEntry.slotIndex);
+        startKnockbackAnimation(caughtId, from, to);
+      }
+      applyStackVisualOffsets();
+      updateMoveOutcome(outcome);
+
+      if (outcome.caughtPieceIds.length > 0) {
+        grantBonusThrow(throwSession); // PRD.md §7, §14 — catching earns another throw
+      }
 
       const forfeited = pruneUnusableResults(throwSession, currentPlayer(gameState).pieces);
       updatePendingResultsReadout(throwSession, forfeited);
@@ -666,6 +807,7 @@ try {
   });
 
   renderPieceSelectionPanel();
+  renderMoveOutcomePanel();
   renderPendingResultSelector();
   renderTurnIndicator();
   updateTurnIndicator(currentPlayer(gameState), gameState.settings.language);
@@ -684,7 +826,9 @@ try {
       const isSelected = pieceId === selectedPieceId;
       const isHovered = pieceId === hoveredPieceId;
       const isMovable = isPieceMovableNow(piece);
-      const isMoveAnimatingThisPiece = pieceMoveAnimation && pieceMoveAnimation.pieceId === pieceId;
+      const isMoveAnimatingThisPiece =
+        (pieceMoveAnimation && pieceMoveAnimation.members.some((m) => m.pieceId === pieceId)) ||
+        knockbackAnimations.some((k) => k.pieceId === pieceId);
 
       // The move animation owns position.y (and x/z) while it's running —
       // don't fight it with the hover-lift lerp below.
@@ -763,6 +907,8 @@ try {
       clickPieceId: (pieceId) => selectOrMovePiece(pieceId),
       pieceEntriesById,
       isMoveAnimating: () => isMoveAnimating,
+      isKnockbackAnimating: () => knockbackAnimations.length > 0,
+      allPieces: () => gameState.players.flatMap((p) => p.pieces),
     };
   }
 
@@ -773,6 +919,7 @@ try {
     requestAnimationFrame(animate);
     updateThrowAnimation(now);
     updatePieceMoveAnimation(now);
+    updateKnockbackAnimations(now);
     updatePieceVisuals(now);
     renderer.render(scene, camera);
 

@@ -159,6 +159,20 @@ html, body {
   text-align: right;
 }
 
+/* ---------- Move outcome: catch / stack readout (Phase 6) ---------- */
+#move-outcome {
+  position: fixed;
+  top: 3.6rem;
+  right: 1rem;
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: #dba233;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  max-width: 260px;
+  text-align: right;
+  min-height: 1.2em;
+}
+
 /* ---------- Developer test panel (DEBUG_MODE only, see main.js) ---------- */
 #debug-panel {
   position: fixed;

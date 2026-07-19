@@ -160,14 +160,41 @@ export function renderPieceSelectionPanel() {
 /**
  * @param {import('./gameLogic.js').Piece|null} piece  the selected piece, or
  *   null to clear the readout
+ * @param {number} [stackSize]  how many pieces (including this one) are
+ *   currently stacked together (PRD.md §15) — 1 means not stacked
  */
-export function updatePieceSelectionDisplay(piece) {
+export function updatePieceSelectionDisplay(piece, stackSize = 1) {
   if (!pieceSelectionEl) return;
   pieceSelectionEl.textContent = piece
     ? `Selected: ${piece.player} piece ${piece.id} — ${piece.state.toLowerCase()}${
         piece.position ? ` at ${piece.position}` : ""
-      }`
+      }${stackSize > 1 ? ` (stacked x${stackSize})` : ""}`
     : "";
+}
+
+let moveOutcomeEl = null;
+
+/** Builds the (initially empty) catch/stack outcome readout. */
+export function renderMoveOutcomePanel() {
+  moveOutcomeEl = document.createElement("div");
+  moveOutcomeEl.id = "move-outcome";
+  hudEl.appendChild(moveOutcomeEl);
+}
+
+/**
+ * Reports the catch/stack side-effects of the move that just resolved
+ * (PRD.md §14-15), or clears the readout if the move had neither.
+ * @param {{ caughtPieceIds: string[], stackedPieceIds: string[] }} outcome
+ */
+export function updateMoveOutcome(outcome) {
+  if (!moveOutcomeEl) return;
+  if (outcome.caughtPieceIds.length > 0) {
+    moveOutcomeEl.textContent = `Caught ${outcome.caughtPieceIds.join(", ")} — bonus throw!`;
+  } else if (outcome.stackedPieceIds.length > 0) {
+    moveOutcomeEl.textContent = `Stacked: ${outcome.stackedPieceIds.join(", ")}`;
+  } else {
+    moveOutcomeEl.textContent = "";
+  }
 }
 
 const DEBUG_FORCEABLE_TYPES = ["DO", "GAE", "GEOL", "YUT", "MO", "BACKDO"];
