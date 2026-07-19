@@ -1,73 +1,68 @@
 # Handoff
 
-Status: implementation complete through **Phase 6** (catching and stacking). Branch `yutnori-game`.
+Status: implementation complete through **Phase 7** (win detection + restart). Branch `yutnori-game`.
 
 ## Today's work
 
-1. **Phase 6** — implemented catching (landing on an opponent sends them back to `WAITING` and grants a bonus throw) and stacking (landing on your own piece merges them into one unit that moves, is caught, and completes together from then on) in `gameLogic.js`'s `applyMove`, now catch/stack-aware and taking `allPieces` so it can see occupants at the destination.
-2. **Found and fixed a real, severe pre-existing bug** while wiring the catch bonus throw: `main.js`'s `canThrowNow()` only checked `pendingResults.length === 0`, but a bonus result (Yut/Mo) sits *in* `pendingResults` the instant it's earned — so the Throw Sticks button became permanently disabled the moment a player actually rolled Yut or Mo, deadlocking the game via real UI clicks (the DEBUG_MODE introspection hook bypassed the disabled button by calling the JS function directly, which is why Phase 5's testing never caught it). Fixed to `chainActive || pendingResults.length === 0`.
-3. Generalized the piece-movement animation from a single piece to a group (`animateGroupMove`), since a stack now needs every member's mesh moved in lockstep from one click.
-4. Added an independent knockback animation for caught pieces flying back to their waiting slot, and `applyStackVisualOffsets()` to arrange same-node pieces in a small non-overlapping cluster after every move.
-5. **Found and fixed a second bug I introduced myself** while building the above: gating the throw button on `knockbackAnimations.length > 0` is correct, but nothing re-evaluated the button once that animation finished asynchronously on its own — so the button could get stuck disabled again, right after fixing bug #2. Fixed by calling `refreshPendingResultUI()` when the knockback queue drains to empty.
-6. Verified with a 95-assertion headless test script (catching for every movement value, catching via Back-Do and while entering, stacking for every movement value, catching a stack, stacking three-way, completing a stack together, bonus-throw granting) and a full browser end-to-end session via the DEBUG_MODE panel + real "Throw Sticks" clicks, confirming the button-deadlock fix specifically under real play, not just the debug hook.
+1. **Phase 7** — added win detection, the victory camera/light effect, a winner banner, and a persistent Restart control.
+2. **gameLogic.js**: `checkWinner(gameState)` — checks whether any player has all 4 pieces `HOME`; if so sets `gameState.winner` and `gameState.turnPhase = 'GAME_OVER'` and returns true (latched: safe to call repeatedly, e.g. after every move). `resetGameState(gameState)` and `resetThrowSession(session)` reset match/session state back to a fresh game in place — same player/piece objects (so main.js's `pieceEntriesById` references stay valid), just their fields reset, per PRD.md §17 ("without requiring a page reload").
+3. **main.js**: calls `checkWinner(gameState)` right after every applied move (inside `animateGroupMove`'s completion callback, before granting any catch bonus or pruning pending results — a completing move never also catches, since `applyMove` returns early on `path.completed`). On a win, `handleGameOver()` disables the throw button, clears the pending-result UI, starts the victory effect, and shows the winner banner — then the callback returns early, skipping turn settlement entirely. `canThrowNow()`/`isPieceMovableNow()`/`processThrowResult()` all now short-circuit on `gameState.turnPhase === 'GAME_OVER'`, so no further throws or moves are possible once there's a winner.
+4. **Victory effect** (`startVictoryEffect`/`updateVictoryEffect` in main.js): a ~1.8s camera zoom toward the winner's finish area plus an ambient/sun light pulse (brighter + warmer at the peak, back to baseline by the end) — driven every frame from the render loop, independent of the piece-move/knockback animation systems, so it can never be blocked by or block them. Distinct from ordinary move/catch animation per PRD.md §26.
+5. **Restart** (`performRestart` in main.js): resets `gameState`/`throwSession` via the new gameLogic.js functions, resets every piece mesh back to its waiting slot, resets stick pose, resets camera framing and light intensities (undoing the victory effect if one was active), hides the winner banner and restart-confirm panel, and refreshes every HUD readout — all without a page reload. A persistent Restart button (top-left, always visible per PRD.md §17) triggers this immediately when the game is fresh or already over; otherwise it shows a custom HUD confirmation panel first (`isRestartSafeWithoutConfirm()` decides which). Deliberately built as an in-HUD confirm panel rather than a native `confirm()` dialog, to stay consistent with the rest of the app's DOM-based HUD (and because native dialogs block scripted/automated interaction).
+6. **ui.js**: `renderWinnerBanner`/`showWinnerBanner`/`hideWinnerBanner` (banner now does real work — was a `console.log` stub through Phase 6), `renderRestartControl`, `renderRestartConfirm`/`showRestartConfirm`/`hideRestartConfirm`, `resetHudReadouts()` (clears the throw-result/pending-results/move-outcome/piece-selection text on restart).
+7. **i18n.js**: added `playAgain`, `restartConfirmMessage`, `confirmRestart`, `cancel` strings (en/ko) — `restart`/`winnerBanner` already existed from earlier phases.
+8. Verified with a 27-assertion headless test script against gameLogic.js directly (win via an exact move, win via an overshoot move — both stop at home rather than wrapping, since `computeForwardSteps` already breaks the walk the instant it reaches `START_NODE_ID` regardless of remaining throw value; winner latching across repeated `checkWinner` calls; restart from a mid-game state; restart from a game-over state) and a full browser session (DEBUG_MODE panel + real mouse clicks) confirming the banner, victory camera/light effect, total input lockout post-game-over, and both restart paths (confirmed vs. skip-confirm) all work end-to-end with zero console errors.
 
 ## Completed features
 
-- **Scene** (Phase 1), **Board** (Phase 2), **Yut sticks & throwing** (Phase 3), **Pieces** (Phase 4), **Movement** (Phase 5) — see prior handoffs; unchanged this session except for the two bugs above.
-- **Catching & stacking** (Phase 6): landing on an opponent's piece or stack sends every piece at that node back to `WAITING` and grants one bonus throw, regardless of stack size; landing on your own piece or stack merges everyone at that node into a shared `stackId` (a deterministic sort-and-join of member piece ids — no counter, nothing to reset on restart) that then moves, is caught, and completes as one unit; visually, stacked pieces arrange in a small non-overlapping ring around their node, and caught pieces get an independent "knocked back" flight to their waiting slot.
+- **Scene** (Phase 1), **Board** (Phase 2), **Yut sticks & throwing** (Phase 3), **Pieces** (Phase 4), **Movement** (Phase 5), **Catching & stacking** (Phase 6) — see prior handoffs (now folded into README.md's Current Progress section); unchanged this session.
+- **Win detection, victory effect, and Restart** (Phase 7): see "Today's work" above.
 
 ## Current architecture
 
-Same flat file structure as before (see prior handoffs for the full breakdown). Notable changes this session:
+Same flat file structure as before (see README.md's "Project files" section). Notable changes this session:
 
-- **`gameLogic.js`**: `applyMove(piece, throwResult, allPieces)` now takes the full piece list (both players) so it can resolve catches/stacks at the destination; added `stackMembers(piece, allPieces)` (every piece sharing a stackId, or just `[piece]`) and `grantBonusThrow(session)` (sets `chainActive = true` — reused verbatim from the Yut/Mo bonus machinery, no separate "interrupt the queue" code path needed, since `chainActive` already blocks movement and hides the pending-result selector).
-- **`main.js`**: `pieceMoveAnimation` generalized from one `pieceId` to a `members` array so a whole stack animates in lockstep from a single click; added a second, independent animation queue (`knockbackAnimations`) for caught pieces; added `applyStackVisualOffsets()` (recomputed from scratch after every move, cheap at ≤8 pieces) for the non-overlapping cluster look.
-- **`ui.js`**: added `renderMoveOutcomePanel`/`updateMoveOutcome` (reports "Caught X — bonus throw!" / "Stacked: X, Y"); `updatePieceSelectionDisplay` now takes an optional stack-size argument.
+- **`gameLogic.js`**: added `checkWinner`, `resetGameState`, `resetThrowSession` (see #2 above). No changes to existing exports.
+- **`main.js`**: added the win-check call site inside the move-completion callback; added `victoryEffect` state + `startVictoryEffect`/`updateVictoryEffect`/`resetVictoryEffect`; added `handleGameOver`, `isRestartSafeWithoutConfirm`, `performRestart`, `handleRestartClick`; added the `GAME_OVER` guard to `canThrowNow`, `isPieceMovableNow`, and `processThrowResult`; `updateVictoryEffect(now)` added to the render loop.
+- **`ui.js`**: `showWinnerBanner` rewritten from a `console.log` stub into a real render/show/hide flow with a "Play Again" button; added the Restart control and its confirmation panel; added `resetHudReadouts`.
 
 ## Remaining work
 
-(Unchanged from Phase 5's handoff — nothing here was touched this session.)
-
-- Pre-game setup screen (nickname, language, piece-face) — `ui.js`'s `showSetupScreen` is a placeholder stub.
-- Win detection, victory banner/effect, and Restart.
+- Pre-game setup screen (nickname, language, piece-face) — `ui.js`'s `showSetupScreen` is still a placeholder stub.
 - Sound effects; wiring the Korean-language toggle.
 - Accessibility (keyboard operability, screen-reader support) per `PRD.md` §24.
 - Bonus features (AI opponent, custom face textures).
 
 ## Important implementation decisions
 
-- **A stack's id is derived, not counter-based**: `stackKey(pieceIds)` sorts the member ids and joins them (`"blue-0+blue-1"`), so merge order never matters and there's no external registry to keep in sync or reset on restart. A stack growing (a third piece joining) or being caught (cleared entirely) just computes a new key or clears the field — no incremental bookkeeping.
-- **Catching and stacking share one occupant scan**: since stacked pieces always have identical `position` (they only ever move/get caught/complete together), filtering `allPieces` by raw `position === destination` already captures every member of any stack sitting there — no need to separately expand via `stackId`.
-- **The catch-triggered bonus throw reuses `chainActive` verbatim**, rather than a separate "insert at front of queue" mechanism. Because `isPieceMovableNow` already refuses to let *any* piece move while `chainActive` is true, and the pending-result selector already hides itself in that state, setting `chainActive = true` on a catch automatically reproduces PRD.md §18's "resolve the bonus throw immediately, interrupting the remaining pending-move queue" — for free, with the exact same code path Yut/Mo already used.
-- **Two real animation-gating bugs were found and fixed this session** (see "Today's work" #2 and #5 above) — both were "the button's `disabled` attribute is a cached DOM property, not a live-derived one, and something async finished without anyone re-deriving it." Any *future* animation state added to gate `canThrowNow()`/`isPieceMovableNow()` needs the same treatment: whatever loop drains that state to empty must itself call `refreshPendingResultUI()` when it does.
-- **Visual stack offsets are recomputed from scratch after every move** (`applyStackVisualOffsets`), not tracked incrementally — simpler, and cheap enough at a maximum of 8 pieces on the board.
+- **`checkWinner` is latched, not edge-triggered**: once `gameState.winner` is set, every subsequent call returns `true` immediately without re-scanning. Safe to call unconditionally after every move (which is what main.js does) without worrying about it firing twice or needing an external "already checked" flag.
+- **A completing move can never also catch or stack in the same `applyMove` call** — `applyMove` returns immediately when `path.completed` is true, before the catch/stack occupant scan runs. This is why main.js's win-check can sit *before* the catch-bonus-throw grant in the move-completion callback without needing to reconcile "did this move both win the game and earn a bonus throw" — that combination is structurally impossible.
+- **"Exact landing" and "overshoot" completion share one code path**, by design carried over from Phase 5: `computeForwardSteps` stops the very instant it reaches `START_NODE_ID`, regardless of how many hops the throw value had left. There is nothing Phase-7-specific to branch on between the two cases — both just produce `outcome.completed === true`, which is all `checkWinner` (and the rest of the win/restart flow) ever looks at.
+- **Restart resets objects in place rather than replacing them.** `resetGameState`/`resetThrowSession` mutate the existing `gameState`/`throwSession` objects' fields instead of building fresh ones, so main.js's `pieceEntriesById` map (keyed by piece object references established once at startup) never needs to be rebuilt or re-linked on restart — it just keeps pointing at the same (now-reset) piece objects.
+- **The victory effect is visually independent of the move/knockback animation systems** (own `victoryEffect` variable, own `update*` function called separately in the render loop) rather than folded into either, since it needs to keep running (camera zoom, light pulse) after `handleGameOver` has already frozen/disabled everything else — it's the one animation still expected to be "live" while the game is otherwise fully locked.
+- **Restart confirmation is a custom HUD panel, not `window.confirm()`** — deliberate, both for visual consistency with the rest of the DOM-based HUD (nothing else in the app uses a native browser dialog) and because native dialogs block further scripted interaction, which would have made this exact feature harder to test end-to-end via the DEBUG_MODE hook.
 
 ## Known bugs
 
-None currently outstanding. This session found and fixed two real ones (see above); post-fix, verified via:
-- 95-assertion headless test script covering catching (every throw value, Back-Do, entering, a full stack caught at once), stacking (every throw value, three-way merges, moving/completing together), and bonus-throw granting.
-- Full browser session (DEBUG_MODE panel + real "Throw Sticks" button clicks) confirming the button never gets stuck disabled through a catch → bonus-throw → resolve cycle, and that knockback/stack-offset visuals render correctly.
-- `DEBUG_MODE` confirmed back to `false` before this handoff; no debug panel or console errors on a clean reload.
+None currently outstanding. This session's headless test (27 assertions) and full browser session (DEBUG_MODE panel forcing a Geol throw to complete blue's 4th piece, and a Mo throw completing red's 4th piece by 2 spaces of overshoot) found none. One thing worth flagging for whoever picks this up next: while testing through the browser automation harness specifically (not a concern for a normal user), `requestAnimationFrame`-driven animations (the throw-stick tumble, piece-move hops) can stall indefinitely if the tab is genuinely backgrounded/hidden (`document.hidden === true`) during a scripted (non-mouse) interaction — this is standard Chrome background-tab rAF throttling, not an application bug; it resolved immediately once real mouse clicks (which keep the tab foregrounded) were used instead of pure `window.__debug` JS calls.
 
 ## Next prompt to use tomorrow
 
 ```
-Implement Phase 7: win detection and restart.
-
-Requirements:
-- detect when a player's 4th piece reaches HOME and declare that player the winner
-- stop accepting further throws/moves once there's a winner (gameState.turnPhase = 'GAME_OVER')
-- show a win banner/UI (ui.js's showWinnerBanner exists as a console.log stub — build the real UI:
-  nickname + a distinct victory effect per PRD.md §26, not just the ordinary move/catch animations)
-- add a "Restart" control, visible at all times, that resets piece positions, turn order (back to
-  Player 1), the throw session, and all animation state — without a page reload
-- keep gameLogic.js pure (no DOM/Three.js); win detection and restart's state reset belong there,
-  the banner/effect/control belong in ui.js + main.js
+Implement the pre-game setup screen: nickname inputs, language toggle (en/ko —
+i18n.js already has both string sets), and piece-face selection, replacing
+ui.js's showSetupScreen placeholder stub. On "Start Game", pass the chosen
+nicknames/language/faceIds into createInitialState's options and skip main.js's
+current "gameState.turnPhase = 'THROWING'" bypass line so the setup screen is
+what actually kicks off the match. Make it reachable again from the Restart
+flow per PRD.md's "shown once before the board loads, and reachable again from
+Restart" (§19) — decide whether Restart should always return to setup or only
+optionally; check with the user if unclear.
 
 After implementation:
-1. test winning via a normal move landing exactly on home
-2. test winning via an overshoot move that completes home
-3. test that no further throws/moves are possible after game over
-4. test Restart from both a mid-game state and a game-over state
-5. wait for approval
+1. test starting a game with custom nicknames and confirm they appear in the
+   turn indicator and winner banner
+2. test the language toggle actually switches HUD text to Korean
+3. test Restart's interaction with the setup screen
+4. wait for approval
 ```

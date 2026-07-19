@@ -248,12 +248,128 @@ export function hideSetupScreen() {
   setupScreenEl.style.display = "none";
 }
 
+let winnerBannerEl = null;
+let winnerBannerTextEl = null;
+
 /**
- * Shows the winner banner + victory effect trigger point (PRD.md §26).
+ * Builds the (initially hidden) winner banner + "Play Again" button once.
+ * The camera/lighting victory effect itself (PRD.md §26) is main.js's job
+ * (Three.js); this is only the HUD half — nickname + Play Again control.
+ * @param {{ onPlayAgain: () => void }} handlers
+ */
+export function renderWinnerBanner({ onPlayAgain }) {
+  winnerBannerEl = document.createElement("div");
+  winnerBannerEl.id = "winner-banner";
+  winnerBannerEl.style.display = "none";
+
+  winnerBannerTextEl = document.createElement("div");
+  winnerBannerTextEl.id = "winner-banner-text";
+  winnerBannerEl.appendChild(winnerBannerTextEl);
+
+  const playAgainButton = document.createElement("button");
+  playAgainButton.type = "button";
+  playAgainButton.id = "play-again-button";
+  playAgainButton.textContent = t("en", "playAgain");
+  playAgainButton.addEventListener("click", onPlayAgain);
+  winnerBannerEl.appendChild(playAgainButton);
+
+  hudEl.appendChild(winnerBannerEl);
+}
+
+/**
+ * Reveals the winner banner (PRD.md §16, §19, §26).
  * @param {string} nickname
  * @param {'en'|'ko'} language
  */
 export function showWinnerBanner(nickname, language) {
-  // TODO: banner UI + "Play Again" button.
-  console.log(t(language, "winnerBanner")(nickname));
+  if (!winnerBannerEl) return;
+  winnerBannerTextEl.textContent = t(language, "winnerBanner")(nickname);
+  winnerBannerEl.querySelector("#play-again-button").textContent = t(language, "playAgain");
+  winnerBannerEl.style.display = "flex";
+}
+
+export function hideWinnerBanner() {
+  if (!winnerBannerEl) return;
+  winnerBannerEl.style.display = "none";
+}
+
+/**
+ * Persistent Restart control, visible at all times (PRD.md §17, §19) —
+ * built once; main.js decides whether to restart immediately or show the
+ * confirmation panel below based on whether a game is in progress.
+ * @param {{ onRestartClick: () => void }} handlers
+ */
+export function renderRestartControl({ onRestartClick }) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.id = "restart-button";
+  button.textContent = t("en", "restart");
+  button.addEventListener("click", onRestartClick);
+  hudEl.appendChild(button);
+}
+
+let restartConfirmEl = null;
+
+/**
+ * Builds the (initially hidden) restart confirmation panel — shown only
+ * when Restart is clicked mid-game, to avoid an accidental reset (PRD.md
+ * §17).
+ * @param {{ onConfirm: () => void, onCancel: () => void }} handlers
+ */
+export function renderRestartConfirm({ onConfirm, onCancel }) {
+  restartConfirmEl = document.createElement("div");
+  restartConfirmEl.id = "restart-confirm";
+  restartConfirmEl.style.display = "none";
+
+  const message = document.createElement("div");
+  message.id = "restart-confirm-message";
+  message.textContent = t("en", "restartConfirmMessage");
+  restartConfirmEl.appendChild(message);
+
+  const buttonRow = document.createElement("div");
+  buttonRow.id = "restart-confirm-buttons";
+
+  const confirmButton = document.createElement("button");
+  confirmButton.type = "button";
+  confirmButton.id = "restart-confirm-yes";
+  confirmButton.textContent = t("en", "confirmRestart");
+  confirmButton.addEventListener("click", onConfirm);
+  buttonRow.appendChild(confirmButton);
+
+  const cancelButton = document.createElement("button");
+  cancelButton.type = "button";
+  cancelButton.id = "restart-confirm-cancel";
+  cancelButton.textContent = t("en", "cancel");
+  cancelButton.addEventListener("click", onCancel);
+  buttonRow.appendChild(cancelButton);
+
+  restartConfirmEl.appendChild(buttonRow);
+  hudEl.appendChild(restartConfirmEl);
+}
+
+export function showRestartConfirm(language = "en") {
+  if (!restartConfirmEl) return;
+  restartConfirmEl.querySelector("#restart-confirm-message").textContent = t(language, "restartConfirmMessage");
+  restartConfirmEl.querySelector("#restart-confirm-yes").textContent = t(language, "confirmRestart");
+  restartConfirmEl.querySelector("#restart-confirm-cancel").textContent = t(language, "cancel");
+  restartConfirmEl.style.display = "flex";
+}
+
+export function hideRestartConfirm() {
+  if (!restartConfirmEl) return;
+  restartConfirmEl.style.display = "none";
+}
+
+/**
+ * Clears every per-match HUD readout back to blank, for Restart — the
+ * throw/pending-result/move-outcome/piece-selection text otherwise keeps
+ * showing the previous match's last state until something new overwrites
+ * it (PRD.md §17, "any UI/animation state" resets too).
+ */
+export function resetHudReadouts() {
+  if (throwResultEl) throwResultEl.textContent = "";
+  if (pendingResultsEl) pendingResultsEl.textContent = "";
+  if (moveOutcomeEl) moveOutcomeEl.textContent = "";
+  if (pieceSelectionEl) pieceSelectionEl.textContent = "";
+  if (pendingResultSelectorEl) pendingResultSelectorEl.replaceChildren();
 }

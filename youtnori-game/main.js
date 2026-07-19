@@ -1,11 +1,13 @@
 // main.js
 //
 // Phase 5 adds piece movement on top of the Phase 1-4 scene, board, sticks,
-// and pieces. Phase 6 adds catching and stacking on top of that. All rules
-// (legal moves, path resolution, shortcuts, completion, catching, stacking,
-// turn switching) live in gameLogic.js — this file only reads its results,
-// animates one visible hop at a time (a whole stack moves in lockstep, one
-// click), and calls applyMove() when the player clicks a legal piece.
+// and pieces. Phase 6 adds catching and stacking on top of that. Phase 7
+// adds win detection, the victory camera/light effect, and Restart. All
+// rules (legal moves, path resolution, shortcuts, completion, catching,
+// stacking, turn switching, win detection, reset) live in gameLogic.js —
+// this file only reads its results, animates one visible hop at a time (a
+// whole stack moves in lockstep, one click), and calls applyMove() when the
+// player clicks a legal piece.
 
 import * as THREE from "three";
 import { BOARD_NODES, BOARD_EDGES, BOARD_NODES_BY_ID, OUTER_RING_HALF_SIZE, findUnreachableNodeIds } from "./boardData.js";
@@ -22,6 +24,9 @@ import {
   pruneUnusableResults,
   maybeSwitchTurn,
   currentPlayer,
+  checkWinner,
+  resetGameState,
+  resetThrowSession,
   PieceState,
   BACK_DO_STICK_INDEX,
 } from "./gameLogic.js";
@@ -39,6 +44,14 @@ import {
   updateTurnIndicator,
   renderMoveOutcomePanel,
   updateMoveOutcome,
+  renderWinnerBanner,
+  showWinnerBanner,
+  hideWinnerBanner,
+  renderRestartControl,
+  renderRestartConfirm,
+  showRestartConfirm,
+  hideRestartConfirm,
+  resetHudReadouts,
 } from "./ui.js";
 
 // DEVELOPER TEST PANEL SWITCH — must be `false` before submission.
@@ -127,6 +140,14 @@ const MOVE_HOP_ARC_HEIGHT = 0.22;
 const KNOCKBACK_DURATION_MS = 420; // a caught piece's flight back to its waiting slot
 const KNOCKBACK_ARC_HEIGHT = 0.4; // higher than a normal hop's arc — reads as more forceful
 const STACK_OFFSET_RADIUS = 0.22; // how far stacked pieces sitting on one node spread apart
+
+// ---------- Victory effect constants (Phase 7) ----------
+const VICTORY_EFFECT_DURATION_MS = 1800;
+const AMBIENT_BASE_INTENSITY = 0.5; // matches ambientLight's initial intensity below
+const SUN_BASE_INTENSITY = 0.8; // matches sunLight's initial intensity below
+const VICTORY_LIGHT_BOOST = 0.9; // peak intensity added on top of the base during the flourish
+const COLOR_LIGHT_NEUTRAL = 0xffffff;
+const COLOR_LIGHT_WARM = 0xfff2d0; // warmer tone at the flourish's peak
 
 // Wrapped in try/catch so a runtime failure (e.g. WebGL unsupported) reports
 // itself in the loading message instead of leaving the page silently blank —
@@ -384,6 +405,7 @@ try {
   // can never diverge in how a result gets animated, recorded, or displayed
   // — only where the ThrowResult itself came from differs.
   function processThrowResult(result) {
+    if (gameState.turnPhase === "GAME_OVER") return; // no further input once there's a winner (PRD.md §16)
     if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0) return; // prevent double-clicking during any animation
     isThrowAnimating = true;
     setThrowButtonEnabled(false);
@@ -668,6 +690,7 @@ try {
   let selectedResultIndex = null;
 
   function canThrowNow() {
+    if (gameState.turnPhase === "GAME_OVER") return false;
     if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0) return false;
     // Throwing is legal in two situations: nothing is pending yet (a fresh
     // turn, or right after every pending move has been applied), OR a bonus
@@ -699,6 +722,134 @@ try {
     }
   }
 
+  // ---------- Win / restart (Phase 7) ----------
+  // { startTime, baseCameraPos: Vector3, targetPos: Vector3, targetLookAt: Vector3 }
+  let victoryEffect = null;
+
+  /**
+   * Camera zoom toward the winner's finish area + a light pulse, distinct
+   * from ordinary move/catch animations (PRD.md §26). Runs alongside
+   * showWinnerBanner rather than gating it — the banner text is the
+   * unambiguous "who won" signal even if a player looks away mid-effect.
+   * @param {'blue'|'red'} winnerId
+   */
+  function startVictoryEffect(winnerId) {
+    const colOffset = BOARD_HALF_SIZE + WAITING_AREA_GAP;
+    const x = winnerId === "blue" ? -colOffset : colOffset;
+    const finishCenterZ = FINISH_AREA_Z + 1.5 * FINISH_SLOT_SPACING;
+    victoryEffect = {
+      startTime: performance.now(),
+      baseCameraPos: camera.position.clone(),
+      targetPos: new THREE.Vector3(x * 0.5, camera.position.y * 0.7, finishCenterZ + 4),
+      targetLookAt: new THREE.Vector3(x, 0, finishCenterZ),
+    };
+  }
+
+  function updateVictoryEffect(now) {
+    if (!victoryEffect) return;
+    const t = Math.min((now - victoryEffect.startTime) / VICTORY_EFFECT_DURATION_MS, 1);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic: quick zoom settling smoothly
+
+    camera.position.lerpVectors(victoryEffect.baseCameraPos, victoryEffect.targetPos, eased);
+    const lookAt = new THREE.Vector3().lerpVectors(new THREE.Vector3(0, 0, 0), victoryEffect.targetLookAt, eased);
+    camera.lookAt(lookAt);
+
+    // A pulse (0 -> 1 -> 0 across the effect) rather than a permanent boost —
+    // "flourish", not a new steady lighting state; the camera framing is
+    // what holds afterward, per PRD.md §26.
+    const pulse = Math.sin(Math.min(t, 1) * Math.PI);
+    ambientLight.intensity = AMBIENT_BASE_INTENSITY + pulse * VICTORY_LIGHT_BOOST;
+    sunLight.intensity = SUN_BASE_INTENSITY + pulse * VICTORY_LIGHT_BOOST;
+    sunLight.color.setHex(pulse > 0.3 ? COLOR_LIGHT_WARM : COLOR_LIGHT_NEUTRAL);
+  }
+
+  /** Restores the camera framing and lighting the victory effect changed, for Restart. */
+  function resetVictoryEffect() {
+    victoryEffect = null;
+    updateCameraForViewport(window.innerWidth, window.innerHeight);
+    ambientLight.intensity = AMBIENT_BASE_INTENSITY;
+    sunLight.intensity = SUN_BASE_INTENSITY;
+    sunLight.color.setHex(COLOR_LIGHT_NEUTRAL);
+  }
+
+  /**
+   * Called the instant checkWinner detects a win: stops further input (via
+   * gameState.turnPhase already being 'GAME_OVER'), and surfaces the win to
+   * the player via the camera/light effect + banner (PRD.md §16, §26).
+   */
+  function handleGameOver() {
+    isMoveAnimating = false;
+    setThrowButtonEnabled(false);
+    updatePendingResultSelector([], null, () => {});
+    updatePendingResultsReadout(throwSession, []);
+    startVictoryEffect(gameState.winner);
+    const winnerPlayer = gameState.players.find((player) => player.id === gameState.winner);
+    showWinnerBanner(winnerPlayer.nickname || winnerPlayer.id, gameState.settings.language);
+  }
+
+  /**
+   * True once a fresh game exists (initial load) or the match just ended —
+   * in either case there's no in-progress state worth protecting, so
+   * Restart can act immediately rather than asking for confirmation
+   * (PRD.md §17: "with a confirmation step if a game is in progress").
+   */
+  function isRestartSafeWithoutConfirm() {
+    if (gameState.turnPhase === "GAME_OVER") return true;
+    const allWaiting = gameState.players.every((player) => player.pieces.every((piece) => piece.state === PieceState.WAITING));
+    return allWaiting && gameState.currentPlayerIndex === 0 && !throwSession.chainActive && throwSession.pendingResults.length === 0;
+  }
+
+  /** Fully resets match state, meshes, animations, camera/lighting, and HUD — no page reload (PRD.md §17). */
+  function performRestart() {
+    resetGameState(gameState);
+    resetThrowSession(throwSession);
+
+    selectedPieceId = null;
+    selectedResultIndex = null;
+    hoveredPieceId = null;
+    isThrowAnimating = false;
+    isMoveAnimating = false;
+    throwAnimation = null;
+    pieceMoveAnimation = null;
+    knockbackAnimations = [];
+
+    for (const entry of pieceEntriesById.values()) {
+      const { x, z } = waitingAreaSlotPosition(entry.piece.player, entry.slotIndex);
+      entry.mesh.position.set(x, PIECE_REST_Y, z);
+      entry.mesh.scale.set(1, 1, 1);
+      for (const material of entry.mesh.material) {
+        material.opacity = 1;
+        material.emissiveIntensity = 0;
+      }
+    }
+    setStickRestState([false, false, false, false]);
+    resetVictoryEffect();
+
+    hideWinnerBanner();
+    hideRestartConfirm();
+    resetHudReadouts();
+    updateTurnIndicator(currentPlayer(gameState), gameState.settings.language);
+    refreshPendingResultUI();
+  }
+
+  function handleRestartClick() {
+    if (isRestartSafeWithoutConfirm()) {
+      performRestart();
+    } else {
+      showRestartConfirm(gameState.settings.language);
+    }
+  }
+
+  renderRestartControl({ onRestartClick: handleRestartClick });
+  renderRestartConfirm({
+    onConfirm: () => {
+      hideRestartConfirm();
+      performRestart();
+    },
+    onCancel: hideRestartConfirm,
+  });
+  renderWinnerBanner({ onPlayAgain: performRestart });
+
   // ---------- Piece interaction: hover, select, legal glow, move ----------
   const raycaster = new THREE.Raycaster();
   const pointerNDC = new THREE.Vector2();
@@ -717,6 +868,7 @@ try {
 
   /** Whether clicking this piece right now would actually execute a move. */
   function isPieceMovableNow(piece) {
+    if (gameState.turnPhase === "GAME_OVER") return false;
     if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0) return false;
     if (throwSession.chainActive) return false;
     if (selectedResultIndex === null) return false;
@@ -787,6 +939,16 @@ try {
       }
       applyStackVisualOffsets();
       updateMoveOutcome(outcome);
+
+      // Win detection happens the instant a move completes a 4th piece
+      // (PRD.md §16) — checked before granting any catch bonus or pruning
+      // pending results, since a completing move never also catches
+      // (applyMove returns early on path.completed) and the game must stop
+      // accepting further input immediately once there's a winner.
+      if (checkWinner(gameState)) {
+        handleGameOver();
+        return;
+      }
 
       if (outcome.caughtPieceIds.length > 0) {
         grantBonusThrow(throwSession); // PRD.md §7, §14 — catching earns another throw
@@ -921,6 +1083,7 @@ try {
     updatePieceMoveAnimation(now);
     updateKnockbackAnimations(now);
     updatePieceVisuals(now);
+    updateVictoryEffect(now);
     renderer.render(scene, camera);
 
     // Hide the loading message once the first real frame has been drawn.

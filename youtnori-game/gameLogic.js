@@ -481,3 +481,61 @@ export function maybeSwitchTurn(gameState, session) {
 export function currentPlayer(gameState) {
   return gameState.players[gameState.currentPlayerIndex];
 }
+
+/**
+ * Checks whether any player has gotten all 4 pieces Home and, if so, ends
+ * the game (PRD.md §16: "the first player to get all 4 pieces Home wins
+ * immediately; the game stops accepting further input except Restart").
+ * Call after every applied move — cheap at 4 pieces per player, and this is
+ * the single place turnPhase ever becomes 'GAME_OVER'.
+ * @param {object} gameState
+ * @returns {boolean} true if this call just detected (or had already
+ *   detected) a winner
+ */
+export function checkWinner(gameState) {
+  if (gameState.winner) return true;
+  const winner = gameState.players.find((player) => player.pieces.every((piece) => piece.state === PieceState.HOME));
+  if (!winner) return false;
+  gameState.winner = winner.id;
+  gameState.turnPhase = "GAME_OVER";
+  return true;
+}
+
+/**
+ * Resets an existing gameState back to a fresh match in place — same player
+ * objects/piece objects (so any external references, e.g. main.js's
+ * pieceEntriesById, stay valid), just their fields reset — rather than
+ * building a new state and requiring every caller to re-link. Nicknames,
+ * language, and AI settings are preserved; only match progress resets
+ * (PRD.md §17: "piece positions, turn order, pending-throw queue, and any
+ * UI/animation state, without requiring a page reload").
+ * @param {object} gameState
+ */
+export function resetGameState(gameState) {
+  for (const player of gameState.players) {
+    for (const piece of player.pieces) {
+      piece.state = PieceState.WAITING;
+      piece.route = null;
+      piece.position = null;
+      piece.completed = false;
+      piece.stackId = null;
+    }
+  }
+  gameState.currentPlayerIndex = 0;
+  gameState.turnPhase = "THROWING"; // no setup screen yet — see createInitialState's caller
+  gameState.throwQueue = [];
+  gameState.pendingMoves = [];
+  gameState.winner = null;
+  gameState.log = [];
+}
+
+/**
+ * Clears a throw session back to empty, for Restart (PRD.md §17). Session
+ * state lives outside gameState (main.js owns the ThrowSession instance),
+ * so this is a separate reset rather than folded into resetGameState.
+ * @param {ThrowSession} session
+ */
+export function resetThrowSession(session) {
+  session.pendingResults = [];
+  session.chainActive = false;
+}

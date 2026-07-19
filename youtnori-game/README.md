@@ -43,7 +43,7 @@ should show `const DEBUG_MODE = false;` with no other assignment overriding it. 
 
 ## Current Progress
 
-Implementation is complete through **Phase 5**.
+Implementation is complete through **Phase 7**.
 
 **Completed features**
 - Phase 1 — Three.js scene: renderer, tilted camera, lighting, responsive resize handling.
@@ -51,19 +51,19 @@ Implementation is complete through **Phase 5**.
 - Phase 3 — Yut sticks and throwing: Do/Gae/Geol/Yut/Mo/Back Do, correct Do-vs-Back-Do disambiguation via the marked stick, throw animation, bonus-throw chaining.
 - Phase 4 — 3D pieces: 4 blue + 4 red pieces, waiting areas, hover/select/lift interaction.
 - Phase 5 — Piece movement: entering the board, moving one visible space at a time with animation, both diagonal shortcuts (activating only on landing exactly on a corner, not on pass-through), Back-Do, overshoot completion, a dedicated finish area, turn-flow rules (no movement until bonus throws finish, no turn switch while results remain pending, forfeited Back-Do when no piece can use it).
+- Phase 6 — Catching (landing on an opponent's piece or stack sends it back to start and grants a bonus throw) and stacking (landing on your own piece merges them into one unit that moves/catches/completes together).
+- Phase 7 — Win detection (first player to get all 4 pieces Home wins immediately, all further input blocked), a victory camera-zoom + lighting-pulse effect distinct from ordinary move/catch animations, a winner banner with "Play Again", and a persistent Restart control (with a confirmation step when restarting mid-game; no confirmation needed from a fresh or already-finished game).
 - Developer test panel (`DEBUG_MODE` in `main.js`) for forcing throw results during testing — see below.
 
 **Remaining phases**
 - Pre-game setup screen (nickname, language, piece-face selection) — currently a placeholder stub.
-- Catching (landing on an opponent's piece sends it back to start) and stacking (landing on your own piece merges them).
-- Win detection and the victory banner/effect, plus the Restart flow.
 - Sound effects and the Korean-language UI toggle (strings exist in `i18n.js`, but no language-switch control is wired up yet).
 - Accessibility features (keyboard operability, screen-reader support) per `PRD.md` §24.
 - Bonus features (AI opponent, custom face textures, etc.).
 
 **Known bugs**
-- None currently outstanding — the most recent review (after Phase 5) found zero JavaScript errors, zero console errors, and no movement/shortcut bugs across the full test suite and extended real-play sessions.
+- None currently outstanding. Phase 7 was verified with a 27-assertion headless test script (exact-landing win, overshoot win, winner latching, restart from mid-game, restart from game-over) plus a full browser session confirming the win banner, victory camera/light effect, input lockout after game-over, and both restart paths (with/without confirmation) all work through real UI interaction, with zero console errors.
 - Minor, non-functional: a couple of JSDoc comments in `boardData.js` and `gameLogic.js` still say direction/route resolution is "a later phase's job," left over from before Phase 5 implemented it. Doesn't affect behavior.
 
 **Next milestone**
-Catching and stacking — the next core rule not yet implemented, needed before two pieces landing on the same space has any real gameplay consequence.
+Sound effects and the Korean-language toggle — the last remaining features before accessibility and bonus/stretch work.
