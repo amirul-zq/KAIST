@@ -27,6 +27,7 @@ import {
   checkWinner,
   resetGameState,
   resetThrowSession,
+  logEvent,
   PieceState,
   BACK_DO_STICK_INDEX,
 } from "./gameLogic.js";
@@ -52,7 +53,10 @@ import {
   showRestartConfirm,
   hideRestartConfirm,
   resetHudReadouts,
+  renderGameLogPanel,
+  updateGameLog,
 } from "./ui.js";
+import { t, throwResultLabel } from "./i18n.js";
 
 // DEVELOPER TEST PANEL SWITCH — must be `false` before submission.
 // When true, an on-screen panel lets you force each throw result (Do, Gae,
@@ -412,11 +416,16 @@ try {
 
     startThrowAnimation(result.stickStates, () => {
       recordThrow(throwSession, result);
+      logEvent(
+        gameState,
+        t(gameState.settings.language, "logThrew")(currentPlayer(gameState).nickname, throwResultLabel(gameState.settings.language, result.type))
+      );
       // A Back-Do with no ACTIVE piece (or any result no piece could ever
       // use) is forfeited immediately rather than blocking the game
       // (PRD.md §5).
       const forfeited = pruneUnusableResults(throwSession, currentPlayer(gameState).pieces);
       updateThrowResult(result, throwSession, forfeited);
+      updateGameLog(gameState.log);
       isThrowAnimating = false;
 
       if (!throwSession.chainActive && throwSession.pendingResults.length > 0) {
@@ -784,7 +793,25 @@ try {
     updatePendingResultsReadout(throwSession, []);
     startVictoryEffect(gameState.winner);
     const winnerPlayer = gameState.players.find((player) => player.id === gameState.winner);
-    showWinnerBanner(winnerPlayer.nickname || winnerPlayer.id, gameState.settings.language);
+    const winnerName = winnerPlayer.nickname || winnerPlayer.id;
+    showWinnerBanner(winnerName, gameState.winner, gameState.settings.language);
+    logEvent(gameState, t(gameState.settings.language, "logWon")(winnerName));
+    updateGameLog(gameState.log);
+    playPlaceholderSound("victory-fanfare");
+  }
+
+  /**
+   * Placeholder for celebration/UI sound effects — no audio assets exist
+   * yet (see README.md's "Remaining phases": sound is a later phase), so
+   * this intentionally just logs what *would* play rather than attempting
+   * to load/play a file that doesn't exist (which would 404 in the
+   * console). Swap the body for a real Audio()/WebAudio call once
+   * assets/sounds/ has real files — the call site (handleGameOver) is
+   * already wired up.
+   * @param {string} soundName
+   */
+  function playPlaceholderSound(soundName) {
+    console.info(`[sound placeholder] would play: ${soundName}`);
   }
 
   /**
@@ -848,7 +875,7 @@ try {
     },
     onCancel: hideRestartConfirm,
   });
-  renderWinnerBanner({ onPlayAgain: performRestart });
+  renderWinnerBanner({ onNewGame: performRestart });
 
   // ---------- Piece interaction: hover, select, legal glow, move ----------
   const raycaster = new THREE.Raycaster();
@@ -940,6 +967,23 @@ try {
       applyStackVisualOffsets();
       updateMoveOutcome(outcome);
 
+      const moverNickname = gameState.players.find((player) => player.id === entry.piece.player).nickname;
+      if (outcome.caughtPieceIds.length > 0) {
+        const victimNickname = gameState.players.find(
+          (player) => player.id === pieceEntriesById.get(outcome.caughtPieceIds[0]).piece.player
+        ).nickname;
+        logEvent(
+          gameState,
+          t(gameState.settings.language, "logCaught")(moverNickname, victimNickname, outcome.caughtPieceIds.length)
+        );
+      } else if (outcome.stackedPieceIds.length > 0) {
+        logEvent(gameState, t(gameState.settings.language, "logStacked")(moverNickname, outcome.stackedPieceIds.length));
+      }
+      if (outcome.completed) {
+        logEvent(gameState, t(gameState.settings.language, "logCompleted")(moverNickname, group.length));
+      }
+      updateGameLog(gameState.log);
+
       // Win detection happens the instant a move completes a 4th piece
       // (PRD.md §16) — checked before granting any catch bonus or pruning
       // pending results, since a completing move never also catches
@@ -972,6 +1016,7 @@ try {
   renderMoveOutcomePanel();
   renderPendingResultSelector();
   renderTurnIndicator();
+  renderGameLogPanel();
   updateTurnIndicator(currentPlayer(gameState), gameState.settings.language);
 
   function updatePieceVisuals(now) {

@@ -52,17 +52,17 @@ Implementation is complete through **Phase 7**.
 - Phase 4 — 3D pieces: 4 blue + 4 red pieces, waiting areas, hover/select/lift interaction.
 - Phase 5 — Piece movement: entering the board, moving one visible space at a time with animation, both diagonal shortcuts (activating only on landing exactly on a corner, not on pass-through), Back-Do, overshoot completion, a dedicated finish area, turn-flow rules (no movement until bonus throws finish, no turn switch while results remain pending, forfeited Back-Do when no piece can use it).
 - Phase 6 — Catching (landing on an opponent's piece or stack sends it back to start and grants a bonus throw) and stacking (landing on your own piece merges them into one unit that moves/catches/completes together).
-- Phase 7 — Win detection (first player to get all 4 pieces Home wins immediately, all further input blocked), a victory camera-zoom + lighting-pulse effect distinct from ordinary move/catch animations, a winner banner with "Play Again", and a persistent Restart control (with a confirmation step when restarting mid-game; no confirmation needed from a fresh or already-finished game).
+- Phase 7 — Win detection (first player to get all 4 pieces Home wins immediately, all further input blocked), a victory camera-zoom + lighting-pulse effect distinct from ordinary move/catch animations, a winner banner showing the winner's name in their team color, a "New Game" control on the banner plus the persistent top-left "Restart" control (both live once a match ends; Restart alone during active play, with a confirmation step when restarting mid-game — no confirmation needed from a fresh or already-finished game), a real running game log (throws, catches, stacks, completions, and the win, in `gameState.log` and shown in a small bottom-left panel, capped at 50 entries), and a celebration-sound placeholder (logs what it would play; no audio assets exist yet — see Sound effects below).
 - Developer test panel (`DEBUG_MODE` in `main.js`) for forcing throw results during testing — see below.
 
 **Remaining phases**
 - Pre-game setup screen (nickname, language, piece-face selection) — currently a placeholder stub.
-- Sound effects and the Korean-language UI toggle (strings exist in `i18n.js`, but no language-switch control is wired up yet).
+- Real sound effects (actual audio assets + playback, replacing the current celebration-sound placeholder) and the Korean-language UI toggle (strings exist in `i18n.js`, but no language-switch control is wired up yet).
 - Accessibility features (keyboard operability, screen-reader support) per `PRD.md` §24.
 - Bonus features (AI opponent, custom face textures, etc.).
 
 **Known bugs**
-- None currently outstanding. Phase 7 was verified with a 27-assertion headless test script (exact-landing win, overshoot win, winner latching, restart from mid-game, restart from game-over) plus a full browser session confirming the win banner, victory camera/light effect, input lockout after game-over, and both restart paths (with/without confirmation) all work through real UI interaction, with zero console errors.
+- None currently outstanding. Phase 7 was verified with headless test scripts (win detection: exact-landing win, overshoot win, winner latching, restart from mid-game, restart from game-over; game log: append order, 50-entry cap) plus full browser sessions confirming the win banner (team-colored text, New Game button), victory camera/light effect, input lockout after game-over, both restart paths (with/without confirmation), the game-log panel populating and clearing correctly, and the sound placeholder firing — all through real UI interaction, with zero console errors.
 - Minor, non-functional: a couple of JSDoc comments in `boardData.js` and `gameLogic.js` still say direction/route resolution is "a later phase's job," left over from before Phase 5 implemented it. Doesn't affect behavior.
 
 **Next milestone**

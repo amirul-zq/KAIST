@@ -252,12 +252,15 @@ let winnerBannerEl = null;
 let winnerBannerTextEl = null;
 
 /**
- * Builds the (initially hidden) winner banner + "Play Again" button once.
+ * Builds the (initially hidden) winner banner + "New Game" button once.
  * The camera/lighting victory effect itself (PRD.md §26) is main.js's job
- * (Three.js); this is only the HUD half — nickname + Play Again control.
- * @param {{ onPlayAgain: () => void }} handlers
+ * (Three.js); this is only the HUD half — nickname (in the winner's team
+ * color) + New Game control. The persistent Restart control (below) stays
+ * present and functional after game-over too, so both "New Game" and
+ * "Restart" are live at once once a match ends.
+ * @param {{ onNewGame: () => void }} handlers
  */
-export function renderWinnerBanner({ onPlayAgain }) {
+export function renderWinnerBanner({ onNewGame }) {
   winnerBannerEl = document.createElement("div");
   winnerBannerEl.id = "winner-banner";
   winnerBannerEl.style.display = "none";
@@ -266,25 +269,30 @@ export function renderWinnerBanner({ onPlayAgain }) {
   winnerBannerTextEl.id = "winner-banner-text";
   winnerBannerEl.appendChild(winnerBannerTextEl);
 
-  const playAgainButton = document.createElement("button");
-  playAgainButton.type = "button";
-  playAgainButton.id = "play-again-button";
-  playAgainButton.textContent = t("en", "playAgain");
-  playAgainButton.addEventListener("click", onPlayAgain);
-  winnerBannerEl.appendChild(playAgainButton);
+  const newGameButton = document.createElement("button");
+  newGameButton.type = "button";
+  newGameButton.id = "new-game-button";
+  newGameButton.textContent = t("en", "newGame");
+  newGameButton.addEventListener("click", onNewGame);
+  winnerBannerEl.appendChild(newGameButton);
 
   hudEl.appendChild(winnerBannerEl);
 }
 
 /**
- * Reveals the winner banner (PRD.md §16, §19, §26).
+ * Reveals the winner banner (PRD.md §16, §19, §26), with the winner's
+ * nickname colored in their team color (reuses the same player-blue/
+ * player-red classes #turn-indicator already uses, so the two stay visually
+ * consistent).
  * @param {string} nickname
+ * @param {'blue'|'red'} playerId
  * @param {'en'|'ko'} language
  */
-export function showWinnerBanner(nickname, language) {
+export function showWinnerBanner(nickname, playerId, language) {
   if (!winnerBannerEl) return;
   winnerBannerTextEl.textContent = t(language, "winnerBanner")(nickname);
-  winnerBannerEl.querySelector("#play-again-button").textContent = t(language, "playAgain");
+  winnerBannerTextEl.className = `player-${playerId}`;
+  winnerBannerEl.querySelector("#new-game-button").textContent = t(language, "newGame");
   winnerBannerEl.style.display = "flex";
 }
 
@@ -360,6 +368,34 @@ export function hideRestartConfirm() {
   restartConfirmEl.style.display = "none";
 }
 
+let gameLogEl = null;
+const GAME_LOG_VISIBLE_ENTRIES = 8; // gameState.log itself keeps more (see gameLogic.js); only the most recent few are worth showing at once
+
+/** Builds the (initially empty) scrollable game-log panel — throws, moves, catches, stacks, and the win, in order. */
+export function renderGameLogPanel() {
+  gameLogEl = document.createElement("div");
+  gameLogEl.id = "game-log";
+  hudEl.appendChild(gameLogEl);
+}
+
+/**
+ * Rebuilds the game-log panel from gameState.log, most recent entry on top,
+ * capped to the last GAME_LOG_VISIBLE_ENTRIES for display (the underlying
+ * array can hold more — see gameLogic.js's logEvent).
+ * @param {string[]} log
+ */
+export function updateGameLog(log) {
+  if (!gameLogEl) return;
+  gameLogEl.replaceChildren();
+  const visible = log.slice(-GAME_LOG_VISIBLE_ENTRIES).reverse();
+  for (const entry of visible) {
+    const line = document.createElement("div");
+    line.className = "game-log-entry";
+    line.textContent = entry;
+    gameLogEl.appendChild(line);
+  }
+}
+
 /**
  * Clears every per-match HUD readout back to blank, for Restart — the
  * throw/pending-result/move-outcome/piece-selection text otherwise keeps
@@ -372,4 +408,5 @@ export function resetHudReadouts() {
   if (moveOutcomeEl) moveOutcomeEl.textContent = "";
   if (pieceSelectionEl) pieceSelectionEl.textContent = "";
   if (pendingResultSelectorEl) pendingResultSelectorEl.replaceChildren();
+  if (gameLogEl) gameLogEl.replaceChildren();
 }

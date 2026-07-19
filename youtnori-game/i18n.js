@@ -13,12 +13,21 @@ const STRINGS = {
     startGame: "Start Game",
     throwSticks: "Throw Sticks",
     restart: "Restart",
-    playAgain: "Play Again",
+    newGame: "New Game",
     restartConfirmMessage: "Restart the game? Current progress will be lost.",
     confirmRestart: "Yes, Restart",
     cancel: "Cancel",
     turnIndicator: (nickname) => `${nickname}'s Turn`,
     winnerBanner: (nickname) => `${nickname} wins!`,
+    logThrew: (nickname, resultLabel) => `${nickname} threw ${resultLabel}`,
+    logCaught: (catcherNickname, victimNickname, count) =>
+      count > 1
+        ? `${catcherNickname} caught ${count} of ${victimNickname}'s pieces — bonus throw!`
+        : `${catcherNickname} caught ${victimNickname}'s piece — bonus throw!`,
+    logStacked: (nickname, count) => `${nickname} stacked ${count} pieces together`,
+    logCompleted: (nickname, count) =>
+      count > 1 ? `${nickname} got ${count} pieces Home` : `${nickname} got a piece Home`,
+    logWon: (nickname) => `${nickname} wins the game!`,
   },
   ko: {
     setupTitle: "3D 윷놀이",
@@ -28,12 +37,21 @@ const STRINGS = {
     startGame: "게임 시작",
     throwSticks: "윷 던지기",
     restart: "다시 시작",
-    playAgain: "다시 플레이",
+    newGame: "새 게임",
     restartConfirmMessage: "게임을 다시 시작할까요? 현재 진행 상황이 사라집니다.",
     confirmRestart: "예, 다시 시작",
     cancel: "취소",
     turnIndicator: (nickname) => `${nickname}의 차례`,
     winnerBanner: (nickname) => `${nickname} 승리!`,
+    logThrew: (nickname, resultLabel) => `${nickname}님이 ${resultLabel}을(를) 던졌습니다`,
+    logCaught: (catcherNickname, victimNickname, count) =>
+      count > 1
+        ? `${catcherNickname}님이 ${victimNickname}님의 말 ${count}개를 잡았습니다 — 보너스 던지기!`
+        : `${catcherNickname}님이 ${victimNickname}님의 말을 잡았습니다 — 보너스 던지기!`,
+    logStacked: (nickname, count) => `${nickname}님이 말 ${count}개를 업었습니다`,
+    logCompleted: (nickname, count) =>
+      count > 1 ? `${nickname}님의 말 ${count}개가 났습니다` : `${nickname}님의 말이 났습니다`,
+    logWon: (nickname) => `${nickname}님이 승리했습니다!`,
   },
 };
 

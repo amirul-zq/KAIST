@@ -482,6 +482,25 @@ export function currentPlayer(gameState) {
   return gameState.players[gameState.currentPlayerIndex];
 }
 
+// Cap on gameState.log length — a running match log, not permanent history,
+// so it's trimmed rather than left to grow unbounded across a long game.
+const GAME_LOG_MAX_ENTRIES = 50;
+
+/**
+ * Appends one already-formatted, human-readable line to gameState.log (the
+ * game's throw/move/catch/stack/win history) — main.js is the caller, since
+ * it already has the current language resolved for every message it logs.
+ * Oldest entries drop off past GAME_LOG_MAX_ENTRIES.
+ * @param {object} gameState
+ * @param {string} message
+ */
+export function logEvent(gameState, message) {
+  gameState.log.push(message);
+  if (gameState.log.length > GAME_LOG_MAX_ENTRIES) {
+    gameState.log.splice(0, gameState.log.length - GAME_LOG_MAX_ENTRIES);
+  }
+}
+
 /**
  * Checks whether any player has gotten all 4 pieces Home and, if so, ends
  * the game (PRD.md §16: "the first player to get all 4 pieces Home wins
