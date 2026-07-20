@@ -56,9 +56,13 @@ export function createInitialState(options = {}) {
       aiEnabled: false,
       soundEnabled: true,
     },
+    // "default" resolves (in ui.js/main.js — this file stays UI-agnostic, see
+    // the module comment) to that team's bundled default face photo; picking
+    // a FACE_OPTIONS emoji in the settings modal overwrites it with that
+    // option's id instead.
     players: [
-      { id: "blue", nickname: nicknameBlue, faceId: null, isAI: false, pieces: makeStartingPieces("blue") },
-      { id: "red", nickname: nicknameRed, faceId: null, isAI: false, pieces: makeStartingPieces("red") },
+      { id: "blue", nickname: nicknameBlue, faceId: "default", isAI: false, pieces: makeStartingPieces("blue") },
+      { id: "red", nickname: nicknameRed, faceId: "default", isAI: false, pieces: makeStartingPieces("red") },
     ],
     currentPlayerIndex: 0,
     turnPhase: "SETUP", // 'SETUP' | 'THROWING' | 'APPLYING_MOVES' | 'GAME_OVER'

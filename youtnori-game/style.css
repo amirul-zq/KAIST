@@ -120,13 +120,30 @@ button, input, select {
 }
 
 .team-status {
-  min-width: 108px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 130px;
   padding: 0.3rem 0.7rem;
   border-radius: 0.5rem;
   border: 2px solid transparent;
   background: rgba(0, 0, 0, 0.25);
-  text-align: center;
+  text-align: left;
   transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.team-status-avatar {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: block;
+}
+
+.team-status-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
 }
 
 .team-status.player-blue { border-color: rgba(43, 95, 214, 0.4); }
@@ -482,11 +499,19 @@ button, input, select {
   border: 2px solid var(--color-beige-wood);
   background: rgba(0, 0, 0, 0.35);
   font-size: 1.15rem;
+  padding: 0;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.face-option canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: block;
 }
 .face-option:hover { border-color: var(--color-gold); }
 .face-option.selected {
@@ -645,7 +670,8 @@ button, input, select {
     padding: 0.45rem 0.6rem;
   }
   #game-title { font-size: 1rem; }
-  .team-status { min-width: 92px; padding: 0.22rem 0.5rem; }
+  .team-status { min-width: 92px; padding: 0.22rem 0.5rem; gap: 0.35rem; }
+  .team-status-avatar { width: 24px; height: 24px; }
   .team-status-name { font-size: 0.78rem; }
   .team-status-summary { font-size: 0.62rem; }
   #top-bar-controls { gap: 0.35rem; }

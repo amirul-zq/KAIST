@@ -32,7 +32,7 @@ import {
   BACK_DO_STICK_INDEX,
 } from "./gameLogic.js";
 import {
-  FACE_OPTIONS,
+  drawFaceOnCanvas,
   renderTopBar,
   updateTopBarStaticText,
   updateTeamStatus,
@@ -771,7 +771,12 @@ try {
     for (const player of gameState.players) {
       const isHighlighted =
         gameState.turnPhase === "GAME_OVER" ? player.id === gameState.winner : player.id === currentPlayer(gameState).id;
-      updateTeamStatus(player.id, { nickname: player.nickname || player.id, ...teamPieceCounts(player.pieces) }, language, isHighlighted);
+      updateTeamStatus(
+        player.id,
+        { nickname: player.nickname || player.id, faceId: player.faceId, ...teamPieceCounts(player.pieces) },
+        language,
+        isHighlighted
+      );
     }
 
     updateCurrentPlayer(currentPlayer(gameState), language);
@@ -1092,41 +1097,39 @@ try {
   });
 
   // ---------- Piece face textures (settings modal, "character or face selection") ----------
-  // No external face art exists yet (see pieces/README.md) — each face option
-  // is a small emoji drawn onto a canvas and applied as the top-cap texture
-  // (CylinderGeometry's material group 1; see createPieceMesh's comment).
-  // Cached by faceId so switching back and forth never re-draws the canvas.
+  // The circular-crop/no-stretch compositing, team-color ring, and
+  // missing-image fallback all live in ui.js's drawFaceOnCanvas — shared
+  // with the top-bar avatar and settings-modal swatches so every surface
+  // renders a given face identically. This just wraps the resulting canvas
+  // in a THREE.CanvasTexture and applies it to the top cap (material group
+  // 1; see createPieceMesh's comment). Cached by "playerId:faceId" so
+  // switching back and forth never re-composites or re-fetches the photo.
   const faceTextureCache = new Map();
-  function getFaceTexture(faceId) {
-    if (faceTextureCache.has(faceId)) return faceTextureCache.get(faceId);
-    const option = FACE_OPTIONS.find((f) => f.id === faceId);
-    const canvasEl = document.createElement("canvas");
-    canvasEl.width = 128;
-    canvasEl.height = 128;
-    const ctx = canvasEl.getContext("2d");
-    ctx.fillStyle = "#f1e6c8";
-    ctx.fillRect(0, 0, 128, 128);
-    ctx.font = "84px sans-serif";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(option ? option.emoji : "", 64, 70);
-    const texture = new THREE.CanvasTexture(canvasEl);
-    texture.needsUpdate = true;
-    faceTextureCache.set(faceId, texture);
-    return texture;
-  }
-
-  /** Applies faceId's texture to every current-and-future-rendered piece of playerId's top cap. */
   function applyFaceTexture(playerId, faceId) {
-    const texture = getFaceTexture(faceId);
+    const cacheKey = `${playerId}:${faceId}`;
+    let texture = faceTextureCache.get(cacheKey);
+    if (!texture) {
+      const canvasEl = document.createElement("canvas");
+      canvasEl.width = 256;
+      canvasEl.height = 256;
+      texture = new THREE.CanvasTexture(canvasEl);
+      faceTextureCache.set(cacheKey, texture);
+      drawFaceOnCanvas(canvasEl, playerId, faceId, () => {
+        texture.needsUpdate = true; // the default photo finishes loading asynchronously
+      });
+    }
     for (const { piece, mesh } of pieceEntriesById.values()) {
       if (piece.player !== playerId) continue;
       const topMaterial = mesh.material[1];
       topMaterial.map = texture;
-      topMaterial.color.set(0xffffff); // let the texture (beige + emoji) show through untinted
+      topMaterial.color.set(0xffffff); // let the texture (beige/photo + ring) show through untinted
       topMaterial.needsUpdate = true;
     }
   }
+
+  // The default face (each team's bundled photo) applies immediately at
+  // startup, same as any later settings-modal pick.
+  for (const player of gameState.players) applyFaceTexture(player.id, player.faceId);
 
   // ---------- Sound / language / settings ----------
   function setSoundEnabled(enabled) {

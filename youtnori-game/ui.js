@@ -30,6 +30,92 @@ export const FACE_OPTIONS = [
   { id: "face-6", emoji: "🦊" },
 ];
 
+// The real default face art (pieces/player1.png for Blue, pieces/player2.png
+// for Red) — this is what a fresh player.faceId ("default", set by
+// gameLogic.js's createInitialState) resolves to. Kept alongside FACE_OPTIONS
+// as the one place both main.js's 3D texture and this file's own top-bar
+// avatar look up "what does this team's current face actually look like".
+export const DEFAULT_FACE_ID = "default";
+export const DEFAULT_FACE_IMAGE_PATHS = { blue: "pieces/player1.png", red: "pieces/player2.png" };
+const TEAM_COLOR_HEX = { blue: "#2b5fd6", red: "#d6392b" };
+
+function allFaceIdsFor() {
+  return [DEFAULT_FACE_ID, ...FACE_OPTIONS.map((option) => option.id)];
+}
+
+/**
+ * Composites playerId's current face — the default team photo, or a chosen
+ * FACE_OPTIONS emoji — onto `canvas` (its existing width/height are used):
+ * circularly cropped, "cover"-fit so photos are never stretched, ringed in
+ * the team's color (blue/red identity stays visible even though the photos
+ * themselves aren't team-colored), with a plain team-colored disc as the
+ * fallback if the photo fails to load. Shared by main.js's 3D piece texture
+ * and this file's own top-bar/settings-modal avatars so every surface draws
+ * a face identically.
+ * @param {HTMLCanvasElement} canvas
+ * @param {'blue'|'red'} playerId
+ * @param {string} faceId
+ * @param {() => void} [onDone]  called once painting finishes — synchronously
+ *   for an emoji face, asynchronously for the default photo (image load)
+ */
+export function drawFaceOnCanvas(canvas, playerId, faceId, onDone) {
+  const ctx = canvas.getContext("2d");
+  const size = canvas.width;
+  const teamColor = TEAM_COLOR_HEX[playerId] ?? TEAM_COLOR_HEX.blue;
+  const ringWidth = Math.max(2, size * 0.07);
+
+  function paintClippedBase(fillStyle) {
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - ringWidth, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.clip();
+    ctx.fillStyle = fillStyle;
+    ctx.fillRect(0, 0, size, size);
+  }
+
+  function paintRing() {
+    ctx.restore(); // undo the clip from paintClippedBase
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - ringWidth / 2, 0, Math.PI * 2);
+    ctx.lineWidth = ringWidth;
+    ctx.strokeStyle = teamColor;
+    ctx.stroke();
+  }
+
+  if (faceId === DEFAULT_FACE_ID) {
+    const img = new Image();
+    img.onload = () => {
+      paintClippedBase("#f1e6c8");
+      // "cover" fit, centered — crops to a square without stretching the
+      // source photo, whatever its own aspect ratio.
+      const scale = Math.max(size / img.naturalWidth, size / img.naturalHeight);
+      const drawW = img.naturalWidth * scale;
+      const drawH = img.naturalHeight * scale;
+      ctx.drawImage(img, (size - drawW) / 2, (size - drawH) / 2, drawW, drawH);
+      paintRing();
+      onDone?.();
+    };
+    img.onerror = () => {
+      // Fallback colored token — the photo asset is missing/failed to load.
+      paintClippedBase(teamColor);
+      paintRing();
+      onDone?.();
+    };
+    img.src = DEFAULT_FACE_IMAGE_PATHS[playerId];
+  } else {
+    const option = FACE_OPTIONS.find((f) => f.id === faceId);
+    paintClippedBase("#f1e6c8");
+    ctx.font = `${Math.round(size * 0.6)}px sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(option ? option.emoji : "", size / 2, size / 2 + size * 0.04);
+    paintRing();
+    onDone?.();
+  }
+}
+
 /**
  * @param {string[]} classes
  * @param {Record<string, string>} [attrs]
@@ -48,6 +134,8 @@ function el(tag, classes = [], attrs = {}) {
 let topBarEl = null;
 let titleEl = null;
 let teamStatusEls = { blue: null, red: null };
+let teamAvatarEls = { blue: null, red: null };
+let lastPaintedFaceId = { blue: null, red: null }; // avoids re-compositing the avatar canvas on every refreshHud() call
 let soundToggleEl = null;
 let languageToggleEl = null;
 let settingsButtonEl = null;
@@ -67,11 +155,15 @@ export function renderTopBar({ onSoundToggle, onLanguageToggle, onSettingsClick,
   const teamsWrap = el("div", [], { id: "top-bar-teams" });
   for (const playerId of ["blue", "red"]) {
     const status = el("div", ["team-status", `player-${playerId}`], { id: `team-status-${playerId}` });
+    const avatar = el("canvas", ["team-status-avatar"], { width: "64", height: "64" });
+    const text = el("div", ["team-status-text"]);
     const name = el("div", ["team-status-name"], { id: `team-status-name-${playerId}` });
     const summary = el("div", ["team-status-summary"], { id: `team-status-summary-${playerId}` });
-    status.append(name, summary);
+    text.append(name, summary);
+    status.append(avatar, text);
     teamsWrap.appendChild(status);
     teamStatusEls[playerId] = status;
+    teamAvatarEls[playerId] = avatar;
   }
   topBarEl.appendChild(teamsWrap);
 
@@ -124,10 +216,11 @@ export function updateTopBarStaticText(language, soundEnabled) {
 }
 
 /**
- * Updates one team's status block: nickname + waiting/in-play/home counts,
- * and whether it's currently that team's turn (for the highlight style).
+ * Updates one team's status block: avatar, nickname + waiting/in-play/home
+ * counts, and whether it's currently that team's turn (for the highlight
+ * style).
  * @param {'blue'|'red'} playerId
- * @param {{ nickname: string, waiting: number, active: number, home: number }} summary
+ * @param {{ nickname: string, faceId: string, waiting: number, active: number, home: number }} summary
  * @param {'en'|'ko'} language
  * @param {boolean} isCurrentTurn
  */
@@ -141,6 +234,11 @@ export function updateTeamStatus(playerId, summary, language, isCurrentTurn) {
     summary.home
   );
   statusEl.classList.toggle("current-turn", isCurrentTurn);
+
+  if (lastPaintedFaceId[playerId] !== summary.faceId) {
+    lastPaintedFaceId[playerId] = summary.faceId;
+    drawFaceOnCanvas(teamAvatarEls[playerId], playerId, summary.faceId);
+  }
 }
 
 // ==========================================================================
@@ -656,6 +754,15 @@ export function renderSettingsModal({ onClose, onNicknameChange, onSoundChange, 
     const rowLabel = el("div", ["settings-face-row-label"], { id: `settings-face-row-label-${playerId}` });
     row.appendChild(rowLabel);
     const swatches = el("div", ["settings-face-swatches"]);
+
+    const defaultButton = el("button", ["face-option"], { type: "button", "data-face-id": DEFAULT_FACE_ID });
+    const defaultCanvas = el("canvas", [], { width: "64", height: "64" });
+    defaultButton.appendChild(defaultCanvas);
+    defaultButton.addEventListener("click", () => onFaceChange(playerId, DEFAULT_FACE_ID));
+    swatches.appendChild(defaultButton);
+    settingsInputs[`face-${playerId}-${DEFAULT_FACE_ID}`] = defaultButton;
+    drawFaceOnCanvas(defaultCanvas, playerId, DEFAULT_FACE_ID);
+
     FACE_OPTIONS.forEach((option, index) => {
       const button = el("button", ["face-option"], { type: "button", "data-face-id": option.id });
       button.textContent = option.emoji;
@@ -699,6 +806,9 @@ export function updateSettingsModalText(language) {
   settingsModalEl.querySelector("#settings-face-row-label-blue").textContent = t(language, "blueFaceLabel");
   settingsModalEl.querySelector("#settings-face-row-label-red").textContent = t(language, "redFaceLabel");
   settingsModalEl.querySelector("#settings-save-button").textContent = t(language, "saveSettings");
+  for (const playerId of ["blue", "red"]) {
+    settingsInputs[`face-${playerId}-${DEFAULT_FACE_ID}`].setAttribute("aria-label", t(language, "defaultFaceAriaLabel"));
+  }
   FACE_OPTIONS.forEach((option, index) => {
     for (const playerId of ["blue", "red"]) {
       settingsInputs[`face-${playerId}-${option.id}`].setAttribute("aria-label", t(language, "faceOptionAriaLabel")(index + 1));
@@ -716,8 +826,8 @@ export function showSettingsModal(gameState) {
 
   for (const player of gameState.players) {
     settingsInputs[`nickname-${player.id}`].value = player.nickname;
-    for (const option of FACE_OPTIONS) {
-      settingsInputs[`face-${player.id}-${option.id}`].classList.toggle("selected", player.faceId === option.id);
+    for (const faceId of allFaceIdsFor()) {
+      settingsInputs[`face-${player.id}-${faceId}`].classList.toggle("selected", player.faceId === faceId);
     }
   }
   settingsInputs.twoPlayerOption.selected = true;
@@ -735,7 +845,7 @@ export function hideSettingsModal() {
 
 /** Highlights the currently-selected face swatch for one team (called live as the player clicks a swatch). */
 export function updateFaceSelection(playerId, faceId) {
-  for (const option of FACE_OPTIONS) {
-    settingsInputs[`face-${playerId}-${option.id}`]?.classList.toggle("selected", option.id === faceId);
+  for (const id of allFaceIdsFor()) {
+    settingsInputs[`face-${playerId}-${id}`]?.classList.toggle("selected", id === faceId);
   }
 }
