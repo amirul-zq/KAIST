@@ -65,6 +65,7 @@ import {
   updateFaceSelection,
 } from "./ui.js";
 import { t, throwResultLabel } from "./i18n.js";
+import { playSound } from "./sound.js";
 
 // DEVELOPER TEST PANEL SWITCH — must be `false` before submission.
 // When true, an on-screen panel lets you force each throw result (Do, Gae,
@@ -78,6 +79,19 @@ const DEBUG_MODE = false;
 
 const canvas = document.getElementById("scene-canvas");
 const loadingMessageEl = document.getElementById("loading-message");
+
+// ---------- Reduced motion (accessibility) ----------
+// Read once and kept live via a change listener (the OS setting can change
+// while the tab is open). Consulted by every animation below that's purely
+// decorative — the camera intro, the victory zoom/light pulse, hop/knockback
+// arc height, and the legal-piece glow pulse — to flatten or skip it.
+// Animations that carry actual game information (a piece's step-by-step
+// path, a stack forming) still play, just without the extra bounce/pan.
+const reducedMotionQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
+let reducedMotion = reducedMotionQuery.matches;
+reducedMotionQuery.addEventListener("change", (event) => {
+  reducedMotion = event.matches;
+});
 
 // ---------- Board visual constants ----------
 // Sized relative to OUTER_RING_HALF_SIZE (the node grid's own half-extent)
@@ -152,6 +166,13 @@ const MOVE_HOP_ARC_HEIGHT = 0.22;
 const KNOCKBACK_DURATION_MS = 420; // a caught piece's flight back to its waiting slot
 const KNOCKBACK_ARC_HEIGHT = 0.4; // higher than a normal hop's arc — reads as more forceful
 const STACK_OFFSET_RADIUS = 0.22; // how far stacked pieces sitting on one node spread apart
+
+// ---------- Camera intro constants ----------
+const CAMERA_INTRO_DURATION_MS = 1600;
+
+// ---------- Impact-pulse constants (stacking / completion flourish) ----------
+const STACK_POP_SCALE = 1.35;
+const COMPLETION_POP_SCALE = 1.4;
 
 // ---------- Victory effect constants (Phase 7) ----------
 const VICTORY_EFFECT_DURATION_MS = 1800;
@@ -387,18 +408,20 @@ try {
     throwAnimation = {
       startTime: performance.now(),
       stickStates,
+      duration: reducedMotion ? THROW_DURATION_MS * 0.5 : THROW_DURATION_MS,
       // Each stick gets a slightly different number of extra full turns so
       // they don't spin in lockstep; being whole multiples of 2*PI, these
-      // never affect the final resting angle.
-      extraSpins: stickStates.map(() => (3 + Math.random() * 3) * Math.PI * 2),
+      // never affect the final resting angle. Reduced-motion skips the
+      // flourish spins entirely — sticks just drop straight to rest.
+      extraSpins: stickStates.map(() => (reducedMotion ? 0 : 3 + Math.random() * 3) * Math.PI * 2),
       onComplete,
     };
   }
 
   function updateThrowAnimation(now) {
     if (!throwAnimation) return;
-    const { startTime, stickStates, extraSpins, onComplete } = throwAnimation;
-    const t = Math.min((now - startTime) / THROW_DURATION_MS, 1);
+    const { startTime, stickStates, extraSpins, duration, onComplete } = throwAnimation;
+    const t = Math.min((now - startTime) / duration, 1);
     const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic: fast tumble settling smoothly to rest
 
     sticks.forEach((stick, i) => {
@@ -434,7 +457,8 @@ try {
       const forfeited = pruneUnusableResults(throwSession, currentPlayer(gameState).pieces);
       updateThrowResult(result, throwSession, gameState.settings.language, forfeited);
       updateGameLog(gameState.log);
-      playPlaceholderSound("throw-sticks");
+      playSound("throw", gameState.settings.soundEnabled);
+      if (result.isBonus) playSound("bonus", gameState.settings.soundEnabled); // Yut or Mo (PRD.md §5-7)
       isThrowAnimating = false;
 
       if (!throwSession.chainActive && throwSession.pendingResults.length > 0) {
@@ -616,7 +640,10 @@ try {
       const to = member.waypoints[anim.segmentIndex + 1];
       mesh.position.x = from.x + (to.x - from.x) * t;
       mesh.position.z = from.z + (to.z - from.z) * t;
-      mesh.position.y = PIECE_REST_Y + Math.sin(t * Math.PI) * MOVE_HOP_ARC_HEIGHT;
+      // The hop arc is decorative bounce on top of the position change that
+      // actually conveys the move — flattened, not removed, under reduced
+      // motion (the piece still visibly travels waypoint to waypoint).
+      mesh.position.y = PIECE_REST_Y + (reducedMotion ? 0 : Math.sin(t * Math.PI) * MOVE_HOP_ARC_HEIGHT);
     }
 
     if (t >= 1) {
@@ -654,7 +681,7 @@ try {
       const eased = 1 - Math.pow(1 - t, 2); // ease-out: fast departure, softer landing
       mesh.position.x = anim.from.x + (anim.to.x - anim.from.x) * eased;
       mesh.position.z = anim.from.z + (anim.to.z - anim.from.z) * eased;
-      mesh.position.y = PIECE_REST_Y + Math.sin(t * Math.PI) * KNOCKBACK_ARC_HEIGHT;
+      mesh.position.y = PIECE_REST_Y + (reducedMotion ? 0 : Math.sin(t * Math.PI) * KNOCKBACK_ARC_HEIGHT);
       if (t < 1) return true;
       mesh.position.set(anim.to.x, PIECE_REST_Y, anim.to.z);
       return false;
@@ -709,7 +736,7 @@ try {
 
   function canThrowNow() {
     if (gameState.turnPhase === "GAME_OVER") return false;
-    if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0) return false;
+    if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0 || cameraIntro) return false;
     // Throwing is legal in two situations: nothing is pending yet (a fresh
     // turn, or right after every pending move has been applied), OR a bonus
     // throw is actively owed (Yut/Mo, or a catch via grantBonusThrow) —
@@ -809,6 +836,12 @@ try {
     }
   }
 
+  // Declared here (rather than down by startCameraIntro/updateCameraIntro,
+  // where it's actually used) so it's already initialized by the time the
+  // first refreshHud() call — much earlier in the script — reads it via
+  // canThrowNow()/isPieceMovableNow().
+  let cameraIntro = null; // { startTime, fromPos: Vector3, toPos: Vector3 }
+
   // ---------- Win / restart (Phase 7) ----------
   // { startTime, baseCameraPos: Vector3, targetPos: Vector3, targetLookAt: Vector3 }
   let victoryEffect = null;
@@ -834,6 +867,16 @@ try {
 
   function updateVictoryEffect(now) {
     if (!victoryEffect) return;
+
+    // Reduced motion: cut straight to the winner's finish-area framing —
+    // still useful information — and skip the camera pan and the
+    // brightness/color pulse, both purely decorative.
+    if (reducedMotion) {
+      camera.position.copy(victoryEffect.targetPos);
+      camera.lookAt(victoryEffect.targetLookAt);
+      return;
+    }
+
     const t = Math.min((now - victoryEffect.startTime) / VICTORY_EFFECT_DURATION_MS, 1);
     const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic: quick zoom settling smoothly
 
@@ -874,24 +917,8 @@ try {
     const winnerName = winnerPlayer.nickname || winnerPlayer.id;
     logEvent(gameState, t(gameState.settings.language, "logWon")(winnerName));
     updateGameLog(gameState.log);
-    playPlaceholderSound("victory-fanfare");
+    playSound("win", gameState.settings.soundEnabled);
     refreshHud(); // shows the winner banner (turnPhase is already GAME_OVER) and the "X has won" action line
-  }
-
-  /**
-   * Placeholder for celebration/UI sound effects — no audio assets exist
-   * yet (see README.md's "Remaining phases": sound is a later phase), so
-   * this intentionally just logs what *would* play rather than attempting
-   * to load/play a file that doesn't exist (which would 404 in the
-   * console). Swap the body for a real Audio()/WebAudio call once
-   * assets/sounds/ has real files — the call site (handleGameOver) is
-   * already wired up. Gated on the sound-toggle setting (top bar/settings
-   * modal) so muting actually silences it once real playback exists.
-   * @param {string} soundName
-   */
-  function playPlaceholderSound(soundName) {
-    if (!gameState.settings.soundEnabled) return;
-    console.info(`[sound placeholder] would play: ${soundName}`);
   }
 
   /**
@@ -931,6 +958,7 @@ try {
     }
     setStickRestState([false, false, false, false]);
     resetVictoryEffect();
+    cameraIntro = null; // in case New Game is clicked mid-intro — resetVictoryEffect already snapped the camera back to its resting framing
 
     hideWinnerBanner();
     restartConfirmVisible = false;
@@ -980,7 +1008,7 @@ try {
   /** Whether clicking this piece right now would actually execute a move. */
   function isPieceMovableNow(piece) {
     if (gameState.turnPhase === "GAME_OVER") return false;
-    if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0) return false;
+    if (isThrowAnimating || isMoveAnimating || knockbackAnimations.length > 0 || cameraIntro) return false;
     if (throwSession.chainActive) return false;
     if (selectedResultIndex === null) return false;
     const result = throwSession.pendingResults[selectedResultIndex];
@@ -1020,6 +1048,7 @@ try {
     const result = throwSession.pendingResults[resultIndex];
     isMoveAnimating = true;
     setThrowButtonEnabled(false);
+    playSound("move", gameState.settings.soundEnabled);
 
     // Captured before applyMove mutates anything: which pieces travel
     // together (this piece's stack-mates, if any), and how many of this
@@ -1059,12 +1088,28 @@ try {
           gameState,
           t(gameState.settings.language, "logCaught")(moverNickname, victimNickname, outcome.caughtPieceIds.length)
         );
-        playPlaceholderSound("catch");
+        playSound("catch", gameState.settings.soundEnabled);
       } else if (outcome.stackedPieceIds.length > 0) {
         logEvent(gameState, t(gameState.settings.language, "logStacked")(moverNickname, outcome.stackedPieceIds.length));
+        playSound("stack", gameState.settings.soundEnabled);
+        // Stacking flourish: a quick overshoot-scale "pop" on every member of
+        // the merged stack, then let updatePieceVisuals' existing per-frame
+        // hover/selection lerp ease it back down to 1 on its own — no extra
+        // animation-state bookkeeping needed. Skipped under reduced motion.
+        if (!reducedMotion) {
+          for (const stackedId of outcome.stackedPieceIds) {
+            pieceEntriesById.get(stackedId)?.mesh.scale.setScalar(STACK_POP_SCALE);
+          }
+        }
       }
       if (outcome.completed) {
         logEvent(gameState, t(gameState.settings.language, "logCompleted")(moverNickname, group.length));
+        // Same pop technique as stacking, for the piece(s) that just arrived Home.
+        if (!reducedMotion) {
+          for (const completedEntry of groupEntries) {
+            completedEntry.mesh.scale.setScalar(COMPLETION_POP_SCALE);
+          }
+        }
       }
       updateGameLog(gameState.log);
 
@@ -1175,10 +1220,18 @@ try {
     onFaceChange: handleFaceChange,
   });
 
-  refreshHud();
+  // Deferred until after startCameraIntro() below (which sets `cameraIntro`)
+  // so this first HUD paint already reflects the throw button being
+  // disabled for the intro's duration, rather than briefly showing enabled
+  // and then flipping to disabled a frame later.
 
   function updatePieceVisuals(now) {
-    const legalPulse = PIECE_LEGAL_GLOW_BASE + PIECE_LEGAL_GLOW_AMPLITUDE * (0.5 + 0.5 * Math.sin(now * 0.003));
+    // A steady mid-level glow instead of an oscillating pulse under reduced
+    // motion — legal pieces still read as highlighted, just without the
+    // continuous animation.
+    const legalPulse = reducedMotion
+      ? PIECE_LEGAL_GLOW_BASE + PIECE_LEGAL_GLOW_AMPLITUDE * 0.5
+      : PIECE_LEGAL_GLOW_BASE + PIECE_LEGAL_GLOW_AMPLITUDE * (0.5 + 0.5 * Math.sin(now * 0.003));
     // "Disable illegal pieces" only means something once there's an active
     // choice to be illegal *against* — before any result is selected (e.g.
     // still mid-throw, or right at game start), nothing is dimmed, it's
@@ -1257,6 +1310,38 @@ try {
   window.addEventListener("orientationchange", () => setTimeout(resizeRenderer, 200));
   resizeRenderer();
 
+  // ---------- Camera intro ----------
+  // A brief establishing-shot pan from further back/above down into the
+  // normal gameplay framing resizeRenderer() just set — the very first
+  // animation the player sees. canThrowNow()/isPieceMovableNow() both gate
+  // on it (see the `let cameraIntro` declaration near `victoryEffect`
+  // above — declared early so the initial refreshHud() call below can
+  // safely read it), so no input is possible until it settles ("must not
+  // allow duplicate input" applies to this animation too, same as the others).
+  function startCameraIntro() {
+    if (reducedMotion) return; // camera is already at its resting gameplay position — no pan to play
+    const toPos = camera.position.clone();
+    const fromPos = toPos.clone().multiplyScalar(1.9);
+    fromPos.y += 6;
+    camera.position.copy(fromPos);
+    camera.lookAt(0, 0, 0);
+    cameraIntro = { startTime: performance.now(), fromPos, toPos };
+  }
+
+  function updateCameraIntro(now) {
+    if (!cameraIntro) return;
+    const t = Math.min((now - cameraIntro.startTime) / CAMERA_INTRO_DURATION_MS, 1);
+    const eased = 1 - Math.pow(1 - t, 3); // ease-out cubic: swoops in, settles smoothly
+    camera.position.lerpVectors(cameraIntro.fromPos, cameraIntro.toPos, eased);
+    camera.lookAt(0, 0, 0);
+    if (t >= 1) {
+      cameraIntro = null;
+      refreshHud(); // re-enables the throw button now that input is allowed
+    }
+  }
+  startCameraIntro();
+  refreshHud(); // first HUD paint — deferred to here so it already reflects cameraIntro's button-disabling, if it just started one
+
   // DEVELOPER-ONLY introspection hook, so the test panel's forced throws can
   // be scripted end-to-end (throw -> select result -> click piece) without a
   // real browser session. Only exists when DEBUG_MODE is true; see the
@@ -1282,6 +1367,7 @@ try {
 
   function animate(now) {
     requestAnimationFrame(animate);
+    updateCameraIntro(now);
     updateThrowAnimation(now);
     updatePieceMoveAnimation(now);
     updateKnockbackAnimations(now);
