@@ -2,7 +2,7 @@
 
 Sound effects and ambient audio: stick throw/clatter, piece move, catch, stack, win fanfare, and the optional traditional ambient loop (see `PRD.md` §26).
 
-`sound.js` looks for these exact filenames and silently plays nothing for any that are missing (see that file's module comment):
+`sound.js` looks for these exact filenames and, for any that are missing, plays a synthesized fallback tone instead (see that file's module comment) — dropping a real file in here upgrades that one effect automatically, no code change needed:
 
 - `throw.mp3` — sticks thrown
 - `move.mp3` — a piece moves
