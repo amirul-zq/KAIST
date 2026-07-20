@@ -8,6 +8,10 @@ const STRINGS = {
   en: {
     gameTitle: "Yutnori",
     setupTitle: "Yutnori 3D",
+    loadingMessage: "Loading 3D scene…",
+    loadingStuckMessage:
+      "Still loading… this can happen if the Three.js CDN is unreachable. Check your internet connection and the browser console, then reload.",
+    sceneInitErrorMessage: "Failed to start the 3D scene — see the browser console for details.",
     nicknameLabel: "Nickname",
     languageLabel: "Language",
     chooseFaceLabel: "Choose your piece face",
@@ -80,10 +84,16 @@ const STRINGS = {
     stackedSuffix: (count) => ` (stacked ×${count})`,
     instructionsLine: "Throw, pick a result, then click a piece of yours to move it. Catch to earn a bonus throw; stack your own pieces to move them together.",
     gameLogToggleLabel: "History",
+    moveOutcomeCaught: (ids) => `Caught ${ids}!`,
+    moveOutcomeStacked: (ids) => `Stacked: ${ids}`,
   },
   ko: {
     gameTitle: "윷놀이",
     setupTitle: "3D 윷놀이",
+    loadingMessage: "3D 장면을 불러오는 중…",
+    loadingStuckMessage:
+      "계속 로딩 중입니다… Three.js CDN에 연결할 수 없을 때 발생할 수 있습니다. 인터넷 연결과 브라우저 콘솔을 확인한 뒤 새로고침하세요.",
+    sceneInitErrorMessage: "3D 장면을 시작하지 못했습니다 — 자세한 내용은 브라우저 콘솔을 확인하세요.",
     nicknameLabel: "닉네임",
     languageLabel: "언어",
     chooseFaceLabel: "말의 얼굴을 선택하세요",
@@ -156,6 +166,8 @@ const STRINGS = {
     stackedSuffix: (count) => ` (업힌 말 ×${count})`,
     instructionsLine: "던지고, 결과를 고른 뒤 이동할 말을 클릭하세요. 상대 말을 잡으면 보너스 던지기를 얻고, 내 말끼리는 업어서 함께 이동할 수 있습니다.",
     gameLogToggleLabel: "기록",
+    moveOutcomeCaught: (ids) => `${ids} 잡음!`,
+    moveOutcomeStacked: (ids) => `업음: ${ids}`,
   },
 };
 

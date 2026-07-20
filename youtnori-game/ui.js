@@ -417,13 +417,14 @@ export function updatePieceSelectionDisplay(piece, language, stackSize = 1) {
  * Reports the catch/stack side-effects of the move that just resolved
  * (PRD.md §14-15), or clears the readout if the move had neither.
  * @param {{ caughtPieceIds: string[], stackedPieceIds: string[] }} outcome
+ * @param {'en'|'ko'} language
  */
-export function updateMoveOutcome(outcome) {
+export function updateMoveOutcome(outcome, language) {
   if (!moveOutcomeEl) return;
   if (outcome.caughtPieceIds.length > 0) {
-    moveOutcomeEl.textContent = `Caught ${outcome.caughtPieceIds.join(", ")}!`;
+    moveOutcomeEl.textContent = t(language, "moveOutcomeCaught")(outcome.caughtPieceIds.join(", "));
   } else if (outcome.stackedPieceIds.length > 0) {
-    moveOutcomeEl.textContent = `Stacked: ${outcome.stackedPieceIds.join(", ")}`;
+    moveOutcomeEl.textContent = t(language, "moveOutcomeStacked")(outcome.stackedPieceIds.join(", "));
   } else {
     moveOutcomeEl.textContent = "";
   }

@@ -13,8 +13,14 @@
   <!-- 3D scene target: Three.js renders into this canvas, nothing else touches it -->
   <canvas id="scene-canvas"></canvas>
 
-  <!-- Shown until the first frame renders; hidden by main.js -->
-  <div id="loading-message">Loading 3D scene…</div>
+  <!--
+    Shown until the first frame renders; hidden by main.js. Bilingual (EN /
+    KO) rather than routed through i18n.js's t() — this fires before any
+    language preference exists (no backend/persistence, see i18n.js's
+    module comment) and, for the watchdog message below, must keep working
+    even if main.js's module never loaded at all.
+  -->
+  <div id="loading-message">Loading 3D scene… / 3D 장면을 불러오는 중…</div>
 
   <!--
     Watchdog: if the page is still stuck on the loading message after a few
@@ -28,7 +34,8 @@
       var el = document.getElementById("loading-message");
       if (el && el.style.display !== "none") {
         el.textContent =
-          "Still loading… this can happen if the Three.js CDN is unreachable. Check your internet connection and the browser console, then reload.";
+          "Still loading… this can happen if the Three.js CDN is unreachable. Check your internet connection and the browser console, then reload. / " +
+          "계속 로딩 중입니다… Three.js CDN에 연결할 수 없을 때 발생할 수 있습니다. 인터넷 연결과 브라우저 콘솔을 확인한 뒤 새로고침하세요.";
       }
     }, 8000);
   </script>

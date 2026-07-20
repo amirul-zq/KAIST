@@ -1048,7 +1048,7 @@ try {
         startKnockbackAnimation(caughtId, from, to);
       }
       applyStackVisualOffsets();
-      updateMoveOutcome(outcome);
+      updateMoveOutcome(outcome, gameState.settings.language);
 
       const moverNickname = gameState.players.find((player) => player.id === entry.piece.player).nickname;
       if (outcome.caughtPieceIds.length > 0) {
@@ -1298,5 +1298,8 @@ try {
   animate(performance.now());
 } catch (err) {
   console.error("Failed to initialize the 3D scene:", err);
-  loadingMessageEl.textContent = "Failed to start the 3D scene — see the browser console for details.";
+  // Bilingual (EN / KO) rather than gameState.settings.language — gameState
+  // is declared inside the try block above, so it's out of scope here
+  // whether the failure happened before or after it was created.
+  loadingMessageEl.textContent = `${t("en", "sceneInitErrorMessage")} / ${t("ko", "sceneInitErrorMessage")}`;
 }
