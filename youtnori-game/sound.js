@@ -53,13 +53,23 @@ export function playSound(name, enabled) {
   if (!audio) return;
   try {
     audio.currentTime = 0; // restart if the same effect fires again before finishing
+  } catch {
+    // With preload="none" the element often has no metadata yet (readyState
+    // HAVE_NOTHING), and some browsers (Firefox, Safari) throw
+    // InvalidStateError on this specific assignment in that state — must be
+    // its own try/catch, separate from play() below, or a throw here would
+    // skip play() entirely and the sound would never play even once the
+    // file loads. It's a harmless no-op either way: a fresh element already
+    // starts at 0.
+  }
+  try {
     const playPromise = audio.play();
     if (playPromise && typeof playPromise.catch === "function") {
       playPromise.catch(() => {});
     }
   } catch {
-    // Some browsers throw synchronously (e.g. setting currentTime before
-    // metadata loads) instead of rejecting the play() promise — treated the
-    // same as any other missing-file/blocked-playback case: do nothing.
+    // Some browsers throw synchronously instead of rejecting the play()
+    // promise — treated the same as any other missing-file/blocked-playback
+    // case: do nothing.
   }
 }

@@ -957,8 +957,14 @@ try {
       }
     }
     setStickRestState([false, false, false, false]);
+    // Cleared *before* resetVictoryEffect(), not after: resetVictoryEffect()
+    // calls updateCameraForViewport(), which — while an intro is active —
+    // only retargets cameraIntro.toPos instead of snapping camera.position
+    // (see that function's comment), so this order is what makes New Game
+    // mid-intro actually land the camera at its resting framing instead of
+    // leaving it stuck wherever the pan happened to be.
+    cameraIntro = null;
     resetVictoryEffect();
-    cameraIntro = null; // in case New Game is clicked mid-intro — resetVictoryEffect already snapped the camera back to its resting framing
 
     hideWinnerBanner();
     restartConfirmVisible = false;
@@ -1291,7 +1297,17 @@ try {
     const aspect = width / height;
     camera.aspect = aspect;
     const distanceScale = Math.max(1, CAMERA_REFERENCE_ASPECT / aspect);
-    camera.position.copy(CAMERA_BASE_DIRECTION).multiplyScalar(distanceScale);
+    const finalPos = CAMERA_BASE_DIRECTION.clone().multiplyScalar(distanceScale);
+    if (cameraIntro) {
+      // A resize mid-intro (rare, but possible — e.g. rotating a phone
+      // during the ~1.6s pan): retarget the in-progress lerp instead of
+      // snapping camera.position directly, which would fight the very next
+      // updateCameraIntro() frame and leave the pan settling on a stale
+      // pre-resize framing.
+      cameraIntro.toPos = finalPos;
+    } else {
+      camera.position.copy(finalPos);
+    }
     camera.lookAt(0, 0, 0);
     camera.updateProjectionMatrix();
   }
