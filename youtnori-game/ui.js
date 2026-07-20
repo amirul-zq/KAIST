@@ -1,46 +1,202 @@
 // ui.js
 //
-// DOM/HUD only: renders the setup screen and HUD, and reports user actions
-// (button clicks, piece-face choices) back to main.js via plain callbacks.
-// This module never touches Three.js and never mutates game state directly —
-// it only reads state to display it, matching PRD.md §19 ("UI logic separate
-// from game logic and rendering").
+// DOM/HUD only: renders the top bar, bottom panel, and settings modal, and
+// reports user actions (button clicks, input changes) back to main.js via
+// plain callbacks. This module never touches Three.js and never mutates game
+// state directly — it only reads state to display it, matching PRD.md §19
+// ("UI logic separate from game logic and rendering").
+//
+// Layout (see PRD.md's reference-game brief):
+//   #top-bar    — title, per-team status, sound/language/settings/new-game
+//   #bottom-panel — current player, current action, throw button, pending
+//                   results, selected piece, instructions
+//   #settings-modal — nicknames, game mode, sound, language, piece face
 
 import { t, throwResultLabel } from "./i18n.js";
 
 const setupScreenEl = document.getElementById("setup-screen");
 const hudEl = document.getElementById("hud");
 
-let throwButtonEl = null;
-let throwResultEl = null;
-let pendingResultsEl = null;
+// A small set of built-in "face" choices for pieces (no external art assets
+// exist yet — see pieces/README.md — so each face is drawn as an emoji onto
+// a canvas texture by main.js). Exported so main.js can build one texture
+// per id without a second copy of this list drifting out of sync.
+export const FACE_OPTIONS = [
+  { id: "face-1", emoji: "😀" },
+  { id: "face-2", emoji: "😎" },
+  { id: "face-3", emoji: "🦁" },
+  { id: "face-4", emoji: "🐯" },
+  { id: "face-5", emoji: "🐰" },
+  { id: "face-6", emoji: "🦊" },
+];
 
 /**
- * Builds the throw-stick controls (button, latest-result readout, pending
- * list) once and appends them to the HUD. Phase 3 only — not tied to the
- * full turn/player state from createInitialState yet.
+ * @param {string[]} classes
+ * @param {Record<string, string>} [attrs]
+ */
+function el(tag, classes = [], attrs = {}) {
+  const node = document.createElement(tag);
+  if (classes.length) node.className = classes.join(" ");
+  for (const [key, value] of Object.entries(attrs)) node.setAttribute(key, value);
+  return node;
+}
+
+// ==========================================================================
+// Top bar
+// ==========================================================================
+
+let topBarEl = null;
+let titleEl = null;
+let teamStatusEls = { blue: null, red: null };
+let soundToggleEl = null;
+let languageToggleEl = null;
+let settingsButtonEl = null;
+let newGameTopButtonEl = null;
+
+/**
+ * Builds the top bar once: title, both teams' status, and the
+ * sound/language/settings/new-game controls.
+ * @param {{ onSoundToggle: () => void, onLanguageToggle: () => void, onSettingsClick: () => void, onNewGameClick: () => void }} handlers
+ */
+export function renderTopBar({ onSoundToggle, onLanguageToggle, onSettingsClick, onNewGameClick }) {
+  topBarEl = el("div", [], { id: "top-bar" });
+
+  titleEl = el("div", [], { id: "game-title" });
+  topBarEl.appendChild(titleEl);
+
+  const teamsWrap = el("div", [], { id: "top-bar-teams" });
+  for (const playerId of ["blue", "red"]) {
+    const status = el("div", ["team-status", `player-${playerId}`], { id: `team-status-${playerId}` });
+    const name = el("div", ["team-status-name"], { id: `team-status-name-${playerId}` });
+    const summary = el("div", ["team-status-summary"], { id: `team-status-summary-${playerId}` });
+    status.append(name, summary);
+    teamsWrap.appendChild(status);
+    teamStatusEls[playerId] = status;
+  }
+  topBarEl.appendChild(teamsWrap);
+
+  const controls = el("div", [], { id: "top-bar-controls" });
+
+  soundToggleEl = el("button", ["icon-button"], { id: "sound-toggle-button", type: "button" });
+  soundToggleEl.addEventListener("click", onSoundToggle);
+  controls.appendChild(soundToggleEl);
+
+  languageToggleEl = el("button", ["icon-button"], { id: "language-toggle-button", type: "button" });
+  languageToggleEl.addEventListener("click", onLanguageToggle);
+  controls.appendChild(languageToggleEl);
+
+  settingsButtonEl = el("button", ["icon-button"], { id: "settings-button", type: "button" });
+  settingsButtonEl.textContent = "⚙";
+  settingsButtonEl.addEventListener("click", onSettingsClick);
+  controls.appendChild(settingsButtonEl);
+
+  newGameTopButtonEl = el("button", ["text-button"], { id: "new-game-top-button", type: "button" });
+  newGameTopButtonEl.addEventListener("click", onNewGameClick);
+  controls.appendChild(newGameTopButtonEl);
+
+  topBarEl.appendChild(controls);
+  hudEl.appendChild(topBarEl);
+}
+
+/**
+ * Refreshes every top-bar label for the given language/sound state — called
+ * once at startup and again whenever the language or sound toggle changes.
+ * @param {'en'|'ko'} language
+ * @param {boolean} soundEnabled
+ */
+export function updateTopBarStaticText(language, soundEnabled) {
+  if (!topBarEl) return;
+  titleEl.textContent = t(language, "gameTitle");
+  teamStatusEls.blue.querySelector(".team-status-name").textContent = t(language, "blueTeamLabel");
+  teamStatusEls.red.querySelector(".team-status-name").textContent = t(language, "redTeamLabel");
+
+  soundToggleEl.textContent = soundEnabled ? "🔊" : "🔇";
+  soundToggleEl.setAttribute("aria-label", t(language, soundEnabled ? "soundOnAriaLabel" : "soundOffAriaLabel"));
+  soundToggleEl.setAttribute("aria-pressed", String(!soundEnabled));
+
+  languageToggleEl.textContent = language === "en" ? "한국어" : "English";
+  languageToggleEl.setAttribute("aria-label", t(language, "languageToggleAriaLabel"));
+
+  settingsButtonEl.setAttribute("aria-label", t(language, "settingsAriaLabel"));
+
+  newGameTopButtonEl.textContent = t(language, "newGame");
+  newGameTopButtonEl.setAttribute("aria-label", t(language, "newGameAriaLabel"));
+}
+
+/**
+ * Updates one team's status block: nickname + waiting/in-play/home counts,
+ * and whether it's currently that team's turn (for the highlight style).
+ * @param {'blue'|'red'} playerId
+ * @param {{ nickname: string, waiting: number, active: number, home: number }} summary
+ * @param {'en'|'ko'} language
+ * @param {boolean} isCurrentTurn
+ */
+export function updateTeamStatus(playerId, summary, language, isCurrentTurn) {
+  const statusEl = teamStatusEls[playerId];
+  if (!statusEl) return;
+  statusEl.querySelector(".team-status-name").textContent = summary.nickname;
+  statusEl.querySelector(".team-status-summary").textContent = t(language, "teamStatusSummary")(
+    summary.waiting,
+    summary.active,
+    summary.home
+  );
+  statusEl.classList.toggle("current-turn", isCurrentTurn);
+}
+
+// ==========================================================================
+// Bottom panel
+// ==========================================================================
+
+let bottomPanelEl = null;
+let currentPlayerEl = null;
+let currentActionEl = null;
+let moveOutcomeEl = null;
+let throwButtonEl = null;
+let throwResultEl = null;
+let pendingResultsSummaryEl = null;
+let pendingResultSelectorEl = null;
+let pieceSelectionEl = null;
+let instructionsEl = null;
+
+/**
+ * Builds the whole bottom panel once, in display order: current player,
+ * current action, move outcome (transient), throw controls, pending-result
+ * selector, selected-piece readout, instructions.
  * @param {{ onThrowClick: () => void }} handlers
  */
-export function renderThrowControls({ onThrowClick }) {
-  const panel = document.createElement("div");
-  panel.id = "throw-panel";
+export function renderBottomPanel({ onThrowClick }) {
+  bottomPanelEl = el("div", [], { id: "bottom-panel" });
 
-  throwButtonEl = document.createElement("button");
-  throwButtonEl.id = "throw-button";
-  throwButtonEl.type = "button";
-  throwButtonEl.textContent = t("en", "throwSticks");
+  currentPlayerEl = el("div", [], { id: "current-player" });
+  bottomPanelEl.appendChild(currentPlayerEl);
+
+  currentActionEl = el("div", [], { id: "current-action" });
+  bottomPanelEl.appendChild(currentActionEl);
+
+  moveOutcomeEl = el("div", [], { id: "move-outcome" });
+  bottomPanelEl.appendChild(moveOutcomeEl);
+
+  const throwRow = el("div", [], { id: "throw-row" });
+  throwButtonEl = el("button", [], { id: "throw-button", type: "button" });
   throwButtonEl.addEventListener("click", onThrowClick);
-  panel.appendChild(throwButtonEl);
+  throwRow.appendChild(throwButtonEl);
+  throwResultEl = el("div", [], { id: "throw-result" });
+  throwRow.appendChild(throwResultEl);
+  bottomPanelEl.appendChild(throwRow);
 
-  throwResultEl = document.createElement("div");
-  throwResultEl.id = "throw-result";
-  panel.appendChild(throwResultEl);
+  pendingResultsSummaryEl = el("div", [], { id: "pending-results-summary" });
+  bottomPanelEl.appendChild(pendingResultsSummaryEl);
 
-  pendingResultsEl = document.createElement("div");
-  pendingResultsEl.id = "pending-results";
-  panel.appendChild(pendingResultsEl);
+  pendingResultSelectorEl = el("div", [], { id: "pending-result-selector" });
+  bottomPanelEl.appendChild(pendingResultSelectorEl);
 
-  hudEl.appendChild(panel);
+  pieceSelectionEl = el("div", [], { id: "piece-selection-info" });
+  bottomPanelEl.appendChild(pieceSelectionEl);
+
+  instructionsEl = el("div", [], { id: "instructions-line" });
+  bottomPanelEl.appendChild(instructionsEl);
+
+  hudEl.appendChild(bottomPanelEl);
 }
 
 /** Disable the throw button while an animation is in flight, to prevent double clicks. */
@@ -49,53 +205,66 @@ export function setThrowButtonEnabled(enabled) {
   throwButtonEl.disabled = !enabled;
 }
 
-function formatResult(result) {
-  return `${throwResultLabel("en", result.type)} (${result.value})`;
+function formatResult(language, result) {
+  return `${throwResultLabel(language, result.type)} (${result.value})`;
+}
+
+/** @param {'en'|'ko'} language */
+export function updateThrowButtonLabel(language) {
+  if (!throwButtonEl) return;
+  throwButtonEl.textContent = t(language, "throwSticks");
 }
 
 /**
- * Updates the latest-result readout and the full pending-results list.
+ * Sets the freeform "what to do right now" line (throw / select a result /
+ * pick a piece / bonus throw / game over) — main.js computes the exact text
+ * from its own turn-phase/session state since ui.js never reads gameState.
+ */
+export function setCurrentActionText(text) {
+  if (currentActionEl) currentActionEl.textContent = text;
+}
+
+/** @param {{ nickname: string, id: 'blue'|'red' }} player */
+export function updateCurrentPlayer(player, language) {
+  if (!currentPlayerEl) return;
+  currentPlayerEl.textContent = t(language, "currentPlayerLabel")(player.nickname || player.id);
+  currentPlayerEl.className = `player-${player.id}`;
+}
+
+/**
+ * Updates the latest-result readout and the full pending-results summary line.
  * @param {object} latestResult  the ThrowResult just landed
  * @param {import('./gameLogic.js').ThrowSession} session
+ * @param {'en'|'ko'} language
  * @param {(ThrowResult)[]} [forfeitedResults]  results just discarded because
  *   no piece could legally use them (PRD.md §5, "the throw is forfeited")
  */
-export function updateThrowResult(latestResult, session, forfeitedResults = []) {
-  const bonusNote = latestResult.isBonus ? " — bonus throw! Throw again." : "";
-  throwResultEl.textContent = `${formatResult(latestResult)}${bonusNote}`;
-  updatePendingResultsReadout(session, forfeitedResults);
+export function updateThrowResult(latestResult, session, language, forfeitedResults = []) {
+  const bonusNote = latestResult.isBonus ? ` — ${t(language, "actionThrowBonus")}` : "";
+  throwResultEl.textContent = `${formatResult(language, latestResult)}${bonusNote}`;
+  updatePendingResultsReadout(session, language, forfeitedResults);
 }
 
 /**
- * Updates just the pending-moves line, without touching the "latest throw"
- * readout above it — used after a move consumes a pending result, when
+ * Updates just the pending-moves summary line, without touching the "latest
+ * throw" readout — used after a move consumes a pending result, when
  * nothing new was actually thrown.
  * @param {import('./gameLogic.js').ThrowSession} session
+ * @param {'en'|'ko'} language
  * @param {(ThrowResult)[]} [forfeitedResults]
  */
-export function updatePendingResultsReadout(session, forfeitedResults = []) {
+export function updatePendingResultsReadout(session, language, forfeitedResults = []) {
   const forfeitedNote =
     forfeitedResults.length > 0
-      ? ` (${forfeitedResults.map(formatResult).join(", ")} forfeited — no legal piece)`
+      ? ` ${t(language, "forfeitedNote")(forfeitedResults.map((r) => formatResult(language, r)).join(", "))}`
       : "";
 
-  pendingResultsEl.textContent =
+  pendingResultsSummaryEl.textContent =
     session.pendingResults.length > 0
-      ? `Pending moves: ${session.pendingResults.map(formatResult).join(", ")}${
-          session.chainActive ? "" : " — select a result below, then click a piece to move it"
-        }${forfeitedNote}`
-      : forfeitedNote
-        ? `No pending moves.${forfeitedNote}`
-        : "";
-}
-
-let pendingResultSelectorEl = null;
-
-/** Builds the (initially empty) clickable pending-result selector. */
-export function renderPendingResultSelector() {
-  pendingResultSelectorEl = document.createElement("div");
-  pendingResultSelectorEl.id = "pending-result-selector";
-  hudEl.appendChild(pendingResultSelectorEl);
+      ? `${t(language, "pendingResultsLabel")}: ${session.pendingResults
+          .map((r) => formatResult(language, r))
+          .join(", ")}${forfeitedNote}`
+      : `${forfeitedNote || t(language, "noPendingResults")}`;
 }
 
 /**
@@ -104,81 +273,46 @@ export function renderPendingResultSelector() {
  * completed") — pass an empty array otherwise to clear it.
  * @param {(ThrowResult)[]} pendingResults
  * @param {number|null} selectedIndex
+ * @param {'en'|'ko'} language
  * @param {(index: number) => void} onSelect
  */
-export function updatePendingResultSelector(pendingResults, selectedIndex, onSelect) {
+export function updatePendingResultSelector(pendingResults, selectedIndex, language, onSelect) {
   pendingResultSelectorEl.replaceChildren();
   if (pendingResults.length === 0) return;
 
-  const label = document.createElement("div");
-  label.id = "pending-result-selector-label";
-  label.textContent = "Move with:";
+  const label = el("div", [], { id: "pending-result-selector-label" });
+  label.textContent = t(language, "moveWithLabel");
   pendingResultSelectorEl.appendChild(label);
 
+  const buttonRow = el("div", [], { id: "pending-result-selector-buttons" });
   pendingResults.forEach((result, index) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "pending-result-button" + (index === selectedIndex ? " selected" : "");
-    button.textContent = formatResult(result);
+    const button = el("button", ["pending-result-button"], { type: "button" });
+    if (index === selectedIndex) button.classList.add("selected");
+    button.textContent = formatResult(language, result);
+    button.setAttribute("aria-pressed", String(index === selectedIndex));
     button.addEventListener("click", () => onSelect(index));
-    pendingResultSelectorEl.appendChild(button);
+    buttonRow.appendChild(button);
   });
-}
-
-let turnIndicatorEl = null;
-
-/** Builds the (initially empty) turn indicator. */
-export function renderTurnIndicator() {
-  turnIndicatorEl = document.createElement("div");
-  turnIndicatorEl.id = "turn-indicator";
-  hudEl.appendChild(turnIndicatorEl);
-}
-
-/**
- * @param {{ id: 'blue'|'red', nickname: string }} player  whose turn it now is
- * @param {'en'|'ko'} [language]
- */
-export function updateTurnIndicator(player, language = "en") {
-  if (!turnIndicatorEl) return;
-  turnIndicatorEl.textContent = t(language, "turnIndicator")(player.nickname || player.id);
-  turnIndicatorEl.className = `player-${player.id}`;
-}
-
-let pieceSelectionEl = null;
-
-/**
- * Builds the (currently read-only) piece-selection readout. Phase 4 only —
- * clicking a piece has no gameplay effect yet, this just confirms the
- * interaction is wired up correctly.
- */
-export function renderPieceSelectionPanel() {
-  pieceSelectionEl = document.createElement("div");
-  pieceSelectionEl.id = "piece-selection-info";
-  hudEl.appendChild(pieceSelectionEl);
+  pendingResultSelectorEl.appendChild(buttonRow);
 }
 
 /**
  * @param {import('./gameLogic.js').Piece|null} piece  the selected piece, or
  *   null to clear the readout
+ * @param {'en'|'ko'} language
  * @param {number} [stackSize]  how many pieces (including this one) are
  *   currently stacked together (PRD.md §15) — 1 means not stacked
  */
-export function updatePieceSelectionDisplay(piece, stackSize = 1) {
+export function updatePieceSelectionDisplay(piece, language, stackSize = 1) {
   if (!pieceSelectionEl) return;
-  pieceSelectionEl.textContent = piece
-    ? `Selected: ${piece.player} piece ${piece.id} — ${piece.state.toLowerCase()}${
-        piece.position ? ` at ${piece.position}` : ""
-      }${stackSize > 1 ? ` (stacked x${stackSize})` : ""}`
-    : "";
-}
-
-let moveOutcomeEl = null;
-
-/** Builds the (initially empty) catch/stack outcome readout. */
-export function renderMoveOutcomePanel() {
-  moveOutcomeEl = document.createElement("div");
-  moveOutcomeEl.id = "move-outcome";
-  hudEl.appendChild(moveOutcomeEl);
+  if (!piece) {
+    pieceSelectionEl.textContent = `${t(language, "selectedPieceLabel")}: ${t(language, "noPieceSelected")}`;
+    return;
+  }
+  const stateKey = piece.state === "WAITING" ? "stateWaiting" : piece.state === "HOME" ? "stateHome" : "stateActive";
+  const positionNote = piece.position ? ` ${t(language, "atNodeLabel")(piece.position)}` : "";
+  const stackedNote = stackSize > 1 ? t(language, "stackedSuffix")(stackSize) : "";
+  pieceSelectionEl.textContent = `${t(language, "selectedPieceLabel")}: ${piece.id} — ${t(language, stateKey)}${positionNote}${stackedNote}`;
 }
 
 /**
@@ -189,13 +323,36 @@ export function renderMoveOutcomePanel() {
 export function updateMoveOutcome(outcome) {
   if (!moveOutcomeEl) return;
   if (outcome.caughtPieceIds.length > 0) {
-    moveOutcomeEl.textContent = `Caught ${outcome.caughtPieceIds.join(", ")} — bonus throw!`;
+    moveOutcomeEl.textContent = `Caught ${outcome.caughtPieceIds.join(", ")}!`;
   } else if (outcome.stackedPieceIds.length > 0) {
     moveOutcomeEl.textContent = `Stacked: ${outcome.stackedPieceIds.join(", ")}`;
   } else {
     moveOutcomeEl.textContent = "";
   }
 }
+
+/** @param {'en'|'ko'} language */
+export function updateInstructionsLine(language) {
+  if (instructionsEl) instructionsEl.textContent = t(language, "instructionsLine");
+}
+
+/**
+ * Clears every per-match HUD readout back to blank, for Restart/New Game —
+ * the throw/pending-result/move-outcome/piece-selection text otherwise keeps
+ * showing the previous match's last state until something new overwrites it
+ * (PRD.md §17, "any UI/animation state" resets too).
+ */
+export function resetHudReadouts() {
+  if (throwResultEl) throwResultEl.textContent = "";
+  if (pendingResultsSummaryEl) pendingResultsSummaryEl.textContent = "";
+  if (moveOutcomeEl) moveOutcomeEl.textContent = "";
+  if (pendingResultSelectorEl) pendingResultSelectorEl.replaceChildren();
+  if (gameLogEl) gameLogEl.replaceChildren();
+}
+
+// ==========================================================================
+// Developer test panel (DEBUG_MODE only)
+// ==========================================================================
 
 const DEBUG_FORCEABLE_TYPES = ["DO", "GAE", "GEOL", "YUT", "MO", "BACKDO"];
 
@@ -208,20 +365,15 @@ const DEBUG_FORCEABLE_TYPES = ["DO", "GAE", "GEOL", "YUT", "MO", "BACKDO"];
  * @param {{ onForceThrow: (type: string) => void }} handlers
  */
 export function renderDebugPanel({ onForceThrow }) {
-  const panel = document.createElement("div");
-  panel.id = "debug-panel";
+  const panel = el("div", [], { id: "debug-panel" });
 
-  const label = document.createElement("div");
-  label.id = "debug-panel-label";
+  const label = el("div", [], { id: "debug-panel-label" });
   label.textContent = "DEVELOPER TEST PANEL — force a throw result (not part of the game)";
   panel.appendChild(label);
 
-  const buttonRow = document.createElement("div");
-  buttonRow.id = "debug-panel-buttons";
+  const buttonRow = el("div", [], { id: "debug-panel-buttons" });
   for (const type of DEBUG_FORCEABLE_TYPES) {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.className = "debug-force-button";
+    const button = el("button", ["debug-force-button"], { type: "button" });
     button.textContent = throwResultLabel("en", type);
     button.addEventListener("click", () => onForceThrow(type));
     buttonRow.appendChild(button);
@@ -230,6 +382,10 @@ export function renderDebugPanel({ onForceThrow }) {
 
   hudEl.appendChild(panel);
 }
+
+// ==========================================================================
+// Pre-game setup screen (unchanged placeholder — see HANDOFF.md "Remaining work")
+// ==========================================================================
 
 /**
  * Renders the pre-game setup screen (nickname / language / face selection).
@@ -248,6 +404,10 @@ export function hideSetupScreen() {
   setupScreenEl.style.display = "none";
 }
 
+// ==========================================================================
+// Winner banner
+// ==========================================================================
+
 let winnerBannerEl = null;
 let winnerBannerTextEl = null;
 
@@ -255,24 +415,17 @@ let winnerBannerTextEl = null;
  * Builds the (initially hidden) winner banner + "New Game" button once.
  * The camera/lighting victory effect itself (PRD.md §26) is main.js's job
  * (Three.js); this is only the HUD half — nickname (in the winner's team
- * color) + New Game control. The persistent Restart control (below) stays
- * present and functional after game-over too, so both "New Game" and
- * "Restart" are live at once once a match ends.
+ * color) + New Game control.
  * @param {{ onNewGame: () => void }} handlers
  */
 export function renderWinnerBanner({ onNewGame }) {
-  winnerBannerEl = document.createElement("div");
-  winnerBannerEl.id = "winner-banner";
+  winnerBannerEl = el("div", [], { id: "winner-banner" });
   winnerBannerEl.style.display = "none";
 
-  winnerBannerTextEl = document.createElement("div");
-  winnerBannerTextEl.id = "winner-banner-text";
+  winnerBannerTextEl = el("div", [], { id: "winner-banner-text" });
   winnerBannerEl.appendChild(winnerBannerTextEl);
 
-  const newGameButton = document.createElement("button");
-  newGameButton.type = "button";
-  newGameButton.id = "new-game-button";
-  newGameButton.textContent = t("en", "newGame");
+  const newGameButton = el("button", [], { id: "new-game-button", type: "button" });
   newGameButton.addEventListener("click", onNewGame);
   winnerBannerEl.appendChild(newGameButton);
 
@@ -281,9 +434,7 @@ export function renderWinnerBanner({ onNewGame }) {
 
 /**
  * Reveals the winner banner (PRD.md §16, §19, §26), with the winner's
- * nickname colored in their team color (reuses the same player-blue/
- * player-red classes #turn-indicator already uses, so the two stay visually
- * consistent).
+ * nickname colored in their team color.
  * @param {string} nickname
  * @param {'blue'|'red'} playerId
  * @param {'en'|'ko'} language
@@ -301,53 +452,32 @@ export function hideWinnerBanner() {
   winnerBannerEl.style.display = "none";
 }
 
-/**
- * Persistent Restart control, visible at all times (PRD.md §17, §19) —
- * built once; main.js decides whether to restart immediately or show the
- * confirmation panel below based on whether a game is in progress.
- * @param {{ onRestartClick: () => void }} handlers
- */
-export function renderRestartControl({ onRestartClick }) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.id = "restart-button";
-  button.textContent = t("en", "restart");
-  button.addEventListener("click", onRestartClick);
-  hudEl.appendChild(button);
-}
+// ==========================================================================
+// New-game / restart confirmation
+// ==========================================================================
 
 let restartConfirmEl = null;
 
 /**
- * Builds the (initially hidden) restart confirmation panel — shown only
- * when Restart is clicked mid-game, to avoid an accidental reset (PRD.md
+ * Builds the (initially hidden) new-game confirmation panel — shown only
+ * when New Game is clicked mid-match, to avoid an accidental reset (PRD.md
  * §17).
  * @param {{ onConfirm: () => void, onCancel: () => void }} handlers
  */
 export function renderRestartConfirm({ onConfirm, onCancel }) {
-  restartConfirmEl = document.createElement("div");
-  restartConfirmEl.id = "restart-confirm";
+  restartConfirmEl = el("div", [], { id: "restart-confirm" });
   restartConfirmEl.style.display = "none";
 
-  const message = document.createElement("div");
-  message.id = "restart-confirm-message";
-  message.textContent = t("en", "restartConfirmMessage");
+  const message = el("div", [], { id: "restart-confirm-message" });
   restartConfirmEl.appendChild(message);
 
-  const buttonRow = document.createElement("div");
-  buttonRow.id = "restart-confirm-buttons";
+  const buttonRow = el("div", [], { id: "restart-confirm-buttons" });
 
-  const confirmButton = document.createElement("button");
-  confirmButton.type = "button";
-  confirmButton.id = "restart-confirm-yes";
-  confirmButton.textContent = t("en", "confirmRestart");
+  const confirmButton = el("button", [], { id: "restart-confirm-yes", type: "button" });
   confirmButton.addEventListener("click", onConfirm);
   buttonRow.appendChild(confirmButton);
 
-  const cancelButton = document.createElement("button");
-  cancelButton.type = "button";
-  cancelButton.id = "restart-confirm-cancel";
-  cancelButton.textContent = t("en", "cancel");
+  const cancelButton = el("button", [], { id: "restart-confirm-cancel", type: "button" });
   cancelButton.addEventListener("click", onCancel);
   buttonRow.appendChild(cancelButton);
 
@@ -368,14 +498,35 @@ export function hideRestartConfirm() {
   restartConfirmEl.style.display = "none";
 }
 
+// ==========================================================================
+// Game log — tucked behind a small toggle so it stays out of the way of the
+// minimal top-bar/bottom-panel layout, per the "minimal and elegant" brief.
+// ==========================================================================
+
 let gameLogEl = null;
+let gameLogToggleEl = null;
+let gameLogVisible = false;
 const GAME_LOG_VISIBLE_ENTRIES = 8; // gameState.log itself keeps more (see gameLogic.js); only the most recent few are worth showing at once
 
-/** Builds the (initially empty) scrollable game-log panel — throws, moves, catches, stacks, and the win, in order. */
+/** Builds the (initially collapsed) scrollable game-log panel + its toggle button, anchored above the bottom panel. */
 export function renderGameLogPanel() {
-  gameLogEl = document.createElement("div");
-  gameLogEl.id = "game-log";
-  hudEl.appendChild(gameLogEl);
+  gameLogToggleEl = el("button", ["text-button"], { id: "game-log-toggle", type: "button" });
+  gameLogToggleEl.setAttribute("aria-expanded", "false");
+  gameLogToggleEl.addEventListener("click", () => {
+    gameLogVisible = !gameLogVisible;
+    gameLogEl.style.display = gameLogVisible ? "flex" : "none";
+    gameLogToggleEl.setAttribute("aria-expanded", String(gameLogVisible));
+  });
+  bottomPanelEl.appendChild(gameLogToggleEl);
+
+  gameLogEl = el("div", [], { id: "game-log" });
+  gameLogEl.style.display = "none";
+  bottomPanelEl.appendChild(gameLogEl);
+}
+
+/** @param {'en'|'ko'} language */
+export function updateGameLogToggleText(language) {
+  if (gameLogToggleEl) gameLogToggleEl.textContent = `${gameLogVisible ? "▾" : "▸"} ${t(language, "gameLogToggleLabel")}`;
 }
 
 /**
@@ -389,24 +540,202 @@ export function updateGameLog(log) {
   gameLogEl.replaceChildren();
   const visible = log.slice(-GAME_LOG_VISIBLE_ENTRIES).reverse();
   for (const entry of visible) {
-    const line = document.createElement("div");
-    line.className = "game-log-entry";
+    const line = el("div", ["game-log-entry"]);
     line.textContent = entry;
     gameLogEl.appendChild(line);
   }
 }
 
+// ==========================================================================
+// Settings modal
+// ==========================================================================
+
+let settingsModalEl = null;
+let settingsInputs = {};
+
 /**
- * Clears every per-match HUD readout back to blank, for Restart — the
- * throw/pending-result/move-outcome/piece-selection text otherwise keeps
- * showing the previous match's last state until something new overwrites
- * it (PRD.md §17, "any UI/animation state" resets too).
+ * Builds the (initially hidden) settings modal once: player nicknames, game
+ * mode, sound, language, and per-team piece face. Every field applies live
+ * (main.js's handlers mutate gameState immediately) — "Save" just closes it.
+ * @param {{
+ *   onClose: () => void,
+ *   onNicknameChange: (playerId: 'blue'|'red', value: string) => void,
+ *   onSoundChange: (enabled: boolean) => void,
+ *   onLanguageChange: (language: 'en'|'ko') => void,
+ *   onFaceChange: (playerId: 'blue'|'red', faceId: string) => void,
+ * }} handlers
  */
-export function resetHudReadouts() {
-  if (throwResultEl) throwResultEl.textContent = "";
-  if (pendingResultsEl) pendingResultsEl.textContent = "";
-  if (moveOutcomeEl) moveOutcomeEl.textContent = "";
-  if (pieceSelectionEl) pieceSelectionEl.textContent = "";
-  if (pendingResultSelectorEl) pendingResultSelectorEl.replaceChildren();
-  if (gameLogEl) gameLogEl.replaceChildren();
+export function renderSettingsModal({ onClose, onNicknameChange, onSoundChange, onLanguageChange, onFaceChange }) {
+  settingsModalEl = el("div", [], { id: "settings-modal" });
+  settingsModalEl.style.display = "none";
+  settingsModalEl.setAttribute("role", "dialog");
+  settingsModalEl.setAttribute("aria-modal", "true");
+
+  settingsModalEl.addEventListener("click", (event) => {
+    if (event.target === settingsModalEl) onClose();
+  });
+  settingsModalEl.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") onClose();
+  });
+
+  const panel = el("div", [], { id: "settings-panel" });
+
+  const header = el("div", [], { id: "settings-header" });
+  const title = el("h2", [], { id: "settings-title" });
+  header.appendChild(title);
+  const closeButton = el("button", ["icon-button"], { id: "settings-close-button", type: "button" });
+  closeButton.textContent = "×";
+  closeButton.addEventListener("click", onClose);
+  header.appendChild(closeButton);
+  panel.appendChild(header);
+
+  // ---- Nicknames ----
+  const nicknamesSection = el("div", ["settings-section"]);
+  const nicknamesLabel = el("div", ["settings-section-label"], { id: "settings-nicknames-label" });
+  nicknamesSection.appendChild(nicknamesLabel);
+  for (const playerId of ["blue", "red"]) {
+    const row = el("label", ["settings-field"]);
+    const rowLabel = el("span", ["settings-field-label"], { id: `settings-nickname-label-${playerId}` });
+    const input = el("input", ["settings-nickname-input", `player-${playerId}`], {
+      id: `settings-nickname-${playerId}`,
+      type: "text",
+      maxlength: "16",
+    });
+    input.addEventListener("input", () => onNicknameChange(playerId, input.value));
+    row.append(rowLabel, input);
+    nicknamesSection.appendChild(row);
+    settingsInputs[`nickname-${playerId}`] = input;
+  }
+  panel.appendChild(nicknamesSection);
+
+  // ---- Game mode ----
+  const modeSection = el("div", ["settings-section"]);
+  const modeLabel = el("div", ["settings-section-label"], { id: "settings-mode-label" });
+  modeSection.appendChild(modeLabel);
+  const modeSelect = el("select", [], { id: "settings-game-mode" });
+  const twoPlayerOption = el("option", [], { value: "pvp" });
+  const vsAiOption = el("option", [], { value: "pvai", disabled: "disabled" });
+  modeSelect.append(twoPlayerOption, vsAiOption);
+  modeSection.appendChild(modeSelect);
+  panel.appendChild(modeSection);
+  settingsInputs.twoPlayerOption = twoPlayerOption;
+  settingsInputs.vsAiOption = vsAiOption;
+
+  // ---- Sound ----
+  const soundSection = el("div", ["settings-section"]);
+  const soundRow = el("label", ["settings-field", "settings-switch-row"]);
+  const soundRowLabel = el("span", ["settings-field-label"], { id: "settings-sound-label" });
+  const soundCheckbox = el("input", ["settings-switch"], { id: "settings-sound-toggle", type: "checkbox" });
+  soundCheckbox.addEventListener("change", () => onSoundChange(soundCheckbox.checked));
+  soundRow.append(soundRowLabel, soundCheckbox);
+  soundSection.appendChild(soundRow);
+  panel.appendChild(soundSection);
+  settingsInputs.soundCheckbox = soundCheckbox;
+
+  // ---- Language ----
+  const languageSection = el("div", ["settings-section"]);
+  const languageLabel = el("div", ["settings-section-label"], { id: "settings-language-label" });
+  languageSection.appendChild(languageLabel);
+  const languageSelect = el("select", [], { id: "settings-language-select" });
+  const enOption = el("option", [], { value: "en" });
+  enOption.textContent = "English";
+  const koOption = el("option", [], { value: "ko" });
+  koOption.textContent = "한국어";
+  languageSelect.append(enOption, koOption);
+  languageSelect.addEventListener("change", () => onLanguageChange(languageSelect.value));
+  languageSection.appendChild(languageSelect);
+  panel.appendChild(languageSection);
+  settingsInputs.languageSelect = languageSelect;
+
+  // ---- Piece face ----
+  const faceSection = el("div", ["settings-section"]);
+  const faceLabel = el("div", ["settings-section-label"], { id: "settings-face-label" });
+  faceSection.appendChild(faceLabel);
+  for (const playerId of ["blue", "red"]) {
+    const row = el("div", ["settings-face-row"]);
+    const rowLabel = el("div", ["settings-face-row-label"], { id: `settings-face-row-label-${playerId}` });
+    row.appendChild(rowLabel);
+    const swatches = el("div", ["settings-face-swatches"]);
+    FACE_OPTIONS.forEach((option, index) => {
+      const button = el("button", ["face-option"], { type: "button", "data-face-id": option.id });
+      button.textContent = option.emoji;
+      button.addEventListener("click", () => onFaceChange(playerId, option.id));
+      swatches.appendChild(button);
+      settingsInputs[`face-${playerId}-${option.id}`] = button;
+    });
+    row.appendChild(swatches);
+    faceSection.appendChild(row);
+  }
+  panel.appendChild(faceSection);
+
+  const footer = el("div", [], { id: "settings-footer" });
+  const saveButton = el("button", ["text-button", "primary"], { id: "settings-save-button", type: "button" });
+  saveButton.addEventListener("click", onClose);
+  footer.appendChild(saveButton);
+  panel.appendChild(footer);
+
+  settingsModalEl.appendChild(panel);
+  hudEl.appendChild(settingsModalEl);
+}
+
+/**
+ * Refreshes every static settings-modal label for the current language —
+ * called on open and whenever the language changes while it's open.
+ * @param {'en'|'ko'} language
+ */
+export function updateSettingsModalText(language) {
+  if (!settingsModalEl) return;
+  settingsModalEl.querySelector("#settings-title").textContent = t(language, "settingsTitle");
+  settingsModalEl.querySelector("#settings-close-button").setAttribute("aria-label", t(language, "closeSettingsAriaLabel"));
+  settingsModalEl.querySelector("#settings-nicknames-label").textContent = t(language, "nicknamesSectionLabel");
+  settingsModalEl.querySelector("#settings-nickname-label-blue").textContent = t(language, "blueNicknameLabel");
+  settingsModalEl.querySelector("#settings-nickname-label-red").textContent = t(language, "redNicknameLabel");
+  settingsModalEl.querySelector("#settings-mode-label").textContent = t(language, "gameModeLabel");
+  settingsInputs.twoPlayerOption.textContent = t(language, "twoPlayerModeLabel");
+  settingsInputs.vsAiOption.textContent = t(language, "vsAiModeLabel");
+  settingsModalEl.querySelector("#settings-sound-label").textContent = t(language, "soundSettingLabel");
+  settingsModalEl.querySelector("#settings-language-label").textContent = t(language, "languageSettingLabel");
+  settingsModalEl.querySelector("#settings-face-label").textContent = t(language, "faceSettingLabel");
+  settingsModalEl.querySelector("#settings-face-row-label-blue").textContent = t(language, "blueFaceLabel");
+  settingsModalEl.querySelector("#settings-face-row-label-red").textContent = t(language, "redFaceLabel");
+  settingsModalEl.querySelector("#settings-save-button").textContent = t(language, "saveSettings");
+  FACE_OPTIONS.forEach((option, index) => {
+    for (const playerId of ["blue", "red"]) {
+      settingsInputs[`face-${playerId}-${option.id}`].setAttribute("aria-label", t(language, "faceOptionAriaLabel")(index + 1));
+    }
+  });
+}
+
+/**
+ * Populates and reveals the settings modal from the current game state.
+ * @param {{ players: {id: 'blue'|'red', nickname: string, faceId: string|null}[], settings: { language: 'en'|'ko', soundEnabled: boolean } }} gameState
+ */
+export function showSettingsModal(gameState) {
+  if (!settingsModalEl) return;
+  updateSettingsModalText(gameState.settings.language);
+
+  for (const player of gameState.players) {
+    settingsInputs[`nickname-${player.id}`].value = player.nickname;
+    for (const option of FACE_OPTIONS) {
+      settingsInputs[`face-${player.id}-${option.id}`].classList.toggle("selected", player.faceId === option.id);
+    }
+  }
+  settingsInputs.twoPlayerOption.selected = true;
+  settingsInputs.soundCheckbox.checked = gameState.settings.soundEnabled;
+  settingsInputs.languageSelect.value = gameState.settings.language;
+
+  settingsModalEl.style.display = "flex";
+  settingsInputs[`nickname-blue`].focus();
+}
+
+export function hideSettingsModal() {
+  if (!settingsModalEl) return;
+  settingsModalEl.style.display = "none";
+}
+
+/** Highlights the currently-selected face swatch for one team (called live as the player clicks a swatch). */
+export function updateFaceSelection(playerId, faceId) {
+  for (const option of FACE_OPTIONS) {
+    settingsInputs[`face-${playerId}-${option.id}`]?.classList.toggle("selected", option.id === faceId);
+  }
 }

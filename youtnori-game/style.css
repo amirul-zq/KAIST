@@ -1,3 +1,24 @@
+/* ---------- Palette ---------- */
+/* Dark green table felt + beige/gold accents — Korean traditional board-game
+   atmosphere (PRD.md §19). Kept as custom properties so every panel below
+   draws from the same small set of colors instead of re-picking hex values. */
+:root {
+  --color-bg-green: #0b2b1e;
+  --color-bg-green-deep: #082018;
+  --color-beige: #f1e6c8;
+  --color-beige-wood: #dac48e;
+  --color-gold: #dba233;
+  --color-gold-soft: rgba(219, 162, 51, 0.25);
+  --color-brown-dark: #241505;
+  --color-blue: #2b5fd6;
+  --color-blue-light: #6f9bff;
+  --color-red: #d6392b;
+  --color-red-light: #ff8f7f;
+  --color-maroon: #a4322a;
+  --panel-bg: linear-gradient(to bottom, rgba(8, 32, 24, 0.94), rgba(8, 32, 24, 0.8));
+  --panel-bg-reverse: linear-gradient(to top, rgba(8, 32, 24, 0.96), rgba(8, 32, 24, 0.75));
+}
+
 /* ---------- Reset ---------- */
 * {
   margin: 0;
@@ -10,8 +31,23 @@ html, body {
   height: 100%;
   overflow: hidden;
   font-family: "Segoe UI", "Malgun Gothic", sans-serif; /* Malgun Gothic covers Korean HUD labels */
-  background: #0b2b1e; /* dark green, matches the felt-table atmosphere from PRD.md */
-  color: #f2f2f2;
+  background: var(--color-bg-green); /* dark green, matches the felt-table atmosphere from PRD.md */
+  color: var(--color-beige);
+}
+
+button, input, select {
+  font-family: inherit;
+}
+
+/* ---------- Keyboard focus ---------- */
+/* Visible on every interactive element in the HUD, regardless of its own
+   background — a consistent gold ring rather than each element inventing
+   its own. Mouse/touch clicks never trigger :focus-visible, so this never
+   shows up as "always-on" chrome during ordinary pointer play. */
+:focus-visible {
+  outline: 3px solid var(--color-gold);
+  outline-offset: 2px;
+  border-radius: 2px;
 }
 
 /* ---------- 3D canvas ---------- */
@@ -31,8 +67,8 @@ html, body {
   align-items: center;
   justify-content: center;
   font-size: 1.25rem;
-  color: #f2f2f2;
-  background: #0b2b1e; /* same color as the scene background, for a seamless handoff */
+  color: var(--color-beige);
+  background: var(--color-bg-green); /* same color as the scene background, for a seamless handoff */
   z-index: 20;
 }
 
@@ -47,30 +83,190 @@ html, body {
   pointer-events: auto; /* individual HUD widgets opt back in */
 }
 
-/* ---------- Throw controls (Phase 3) ---------- */
-#throw-panel {
+/* ==========================================================================
+   Top bar — title, per-team status, sound/language/settings/new-game
+   ========================================================================== */
+#top-bar {
   position: fixed;
-  left: 50%;
-  bottom: 2rem;
-  transform: translateX(-50%);
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  row-gap: 0.4rem;
+  padding: 0.6rem 1.25rem;
+  background: var(--panel-bg);
+  border-bottom: 2px solid var(--color-gold);
+}
+
+#game-title {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: var(--color-gold);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+#top-bar-teams {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  flex: 1 1 auto;
+}
+
+.team-status {
+  min-width: 108px;
+  padding: 0.3rem 0.7rem;
+  border-radius: 0.5rem;
+  border: 2px solid transparent;
+  background: rgba(0, 0, 0, 0.25);
+  text-align: center;
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.team-status.player-blue { border-color: rgba(43, 95, 214, 0.4); }
+.team-status.player-red { border-color: rgba(214, 57, 43, 0.4); }
+
+.team-status.current-turn.player-blue {
+  border-color: var(--color-blue);
+  background: rgba(43, 95, 214, 0.22);
+  box-shadow: 0 0 10px rgba(43, 95, 214, 0.45);
+}
+.team-status.current-turn.player-red {
+  border-color: var(--color-red);
+  background: rgba(214, 57, 43, 0.22);
+  box-shadow: 0 0 10px rgba(214, 57, 43, 0.45);
+}
+
+.team-status-name {
+  font-weight: bold;
+  font-size: 0.9rem;
+}
+
+.team-status-summary {
+  font-size: 0.7rem;
+  color: var(--color-beige);
+  opacity: 0.8;
+  margin-top: 0.1rem;
+}
+
+#top-bar-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.icon-button {
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 50%;
+  border: 2px solid var(--color-beige-wood);
+  background: rgba(20, 15, 5, 0.6);
+  color: var(--color-beige);
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.1s ease;
+}
+.icon-button:hover { background: var(--color-gold); color: var(--color-brown-dark); }
+.icon-button:active { transform: scale(0.94); }
+
+.text-button {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  border: 2px solid var(--color-gold);
+  background: var(--color-gold);
+  color: var(--color-brown-dark);
+  font-weight: bold;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+  white-space: nowrap;
+}
+.text-button:hover { background: #f1c169; }
+.text-button:active { transform: scale(0.97); }
+
+#language-toggle-button {
+  width: auto;
+  min-width: 2.25rem;
+  padding: 0 0.6rem;
+  border-radius: 1.1rem;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+/* ==========================================================================
+   Bottom panel — current player, current action, throw, pending results,
+   selected piece, instructions
+   ========================================================================== */
+#bottom-panel {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 6;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
+  gap: 0.3rem;
+  padding: 0.7rem 1rem 1rem;
+  background: var(--panel-bg-reverse);
+  border-top: 2px solid var(--color-gold);
   text-align: center;
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+#current-player {
+  font-size: 1.1rem;
+  font-weight: bold;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+}
+#current-player.player-blue { color: var(--color-blue-light); }
+#current-player.player-red { color: var(--color-red-light); }
+
+#current-action {
+  font-size: 0.9rem;
+  color: var(--color-beige);
+  min-height: 1.2em;
+}
+
+#move-outcome {
+  font-size: 0.85rem;
+  font-weight: bold;
+  color: var(--color-gold);
+  min-height: 1.1em;
+}
+
+#throw-row {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  flex-wrap: wrap;
+  justify-content: center;
+  margin-top: 0.2rem;
 }
 
 #throw-button {
-  padding: 0.75rem 1.75rem;
-  font-size: 1.1rem;
+  padding: 0.65rem 1.6rem;
+  font-size: 1.05rem;
   font-weight: bold;
   border: none;
   border-radius: 0.5rem;
-  background: #dba233;
-  color: #241505;
+  background: var(--color-gold);
+  color: var(--color-brown-dark);
   cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
 }
-
+#throw-button:hover:not(:disabled) { background: #f1c169; }
+#throw-button:active:not(:disabled) { transform: scale(0.97); }
 #throw-button:disabled {
   background: #6b6455;
   color: #cfcfcf;
@@ -78,106 +274,238 @@ html, body {
 }
 
 #throw-result {
-  font-size: 1rem;
+  font-size: 0.9rem;
   min-height: 1.2em;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  color: var(--color-beige);
 }
 
-#pending-results {
-  font-size: 0.85rem;
-  color: #d8cdb8;
-  min-height: 1.2em;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+#pending-results-summary {
+  font-size: 0.78rem;
+  color: var(--color-beige);
+  opacity: 0.9;
+  min-height: 1.1em;
 }
 
-/* ---------- Turn indicator (Phase 5) ---------- */
-#turn-indicator {
-  position: fixed;
-  top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 0.5rem 1.25rem;
-  font-size: 1.15rem;
-  font-weight: bold;
-  border-radius: 0.5rem;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-}
-
-#turn-indicator.player-blue {
-  background: rgba(43, 95, 214, 0.35);
-  border: 2px solid #2b5fd6;
-}
-
-#turn-indicator.player-red {
-  background: rgba(214, 57, 43, 0.35);
-  border: 2px solid #d6392b;
-}
-
-/* ---------- Pending-result selector (Phase 5) ---------- */
-#pending-result-selector {
-  position: fixed;
-  left: 50%;
-  bottom: 8rem;
-  transform: translateX(-50%);
+#pending-result-selector-buttons {
   display: flex;
-  flex-direction: column;
-  align-items: center;
   gap: 0.4rem;
-}
-
-#pending-result-selector-label {
-  font-size: 0.85rem;
-  color: #d8cdb8;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
+  flex-wrap: wrap;
+  justify-content: center;
 }
 
 .pending-result-button {
-  padding: 0.4rem 0.9rem;
-  font-size: 0.95rem;
-  border: 2px solid #dac48e;
+  padding: 0.35rem 0.85rem;
+  font-size: 0.88rem;
+  border: 2px solid var(--color-beige-wood);
   border-radius: 0.4rem;
   background: rgba(20, 15, 5, 0.75);
-  color: #f1e6c8;
+  color: var(--color-beige);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.pending-result-button:hover { border-color: var(--color-gold); }
+.pending-result-button.selected {
+  background: var(--color-gold);
+  color: var(--color-brown-dark);
+  border-color: var(--color-beige);
+}
+
+#piece-selection-info {
+  font-size: 0.78rem;
+  color: var(--color-beige);
+  opacity: 0.85;
+  min-height: 1.1em;
+}
+
+#instructions-line {
+  font-size: 0.72rem;
+  color: rgba(241, 230, 200, 0.65);
+  max-width: 640px;
+  line-height: 1.4;
+  margin-top: 0.1rem;
+}
+
+#game-log-toggle {
+  background: transparent;
+  border: none;
+  color: var(--color-beige);
+  font-size: 0.72rem;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0.15rem 0.4rem;
+  opacity: 0.75;
+}
+#game-log-toggle:hover { opacity: 1; }
+
+#game-log {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  width: 100%;
+  max-width: 420px;
+  max-height: 8rem;
+  overflow-y: auto;
+  font-size: 0.72rem;
+  color: var(--color-beige);
+  opacity: 0.9;
+  border-top: 1px solid rgba(218, 196, 142, 0.25);
+  padding-top: 0.3rem;
+}
+
+.game-log-entry { opacity: 0.85; }
+.game-log-entry:first-child { opacity: 1; font-weight: bold; }
+
+/* ==========================================================================
+   Settings modal
+   ========================================================================== */
+#settings-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.65);
+  padding: 1rem;
+}
+
+#settings-panel {
+  width: min(480px, 92vw);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: linear-gradient(160deg, #123526, var(--color-bg-green));
+  border: 2px solid var(--color-gold);
+  border-radius: 0.75rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+#settings-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#settings-title {
+  font-size: 1.3rem;
+  font-weight: bold;
+  color: var(--color-gold);
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid rgba(218, 196, 142, 0.25);
+}
+.settings-section:last-of-type { border-bottom: none; padding-bottom: 0; }
+
+.settings-section-label {
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-beige-wood);
+  font-weight: bold;
+}
+
+.settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.settings-field-label {
+  font-size: 0.9rem;
+  color: var(--color-beige);
+}
+
+.settings-nickname-input {
+  flex: 1;
+  max-width: 200px;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 2px solid var(--color-beige-wood);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--color-beige);
+  font-size: 0.9rem;
+}
+.settings-nickname-input.player-blue { border-color: var(--color-blue); }
+.settings-nickname-input.player-red { border-color: var(--color-red); }
+
+#settings-game-mode,
+#settings-language-select {
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 2px solid var(--color-beige-wood);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--color-beige);
+  font-size: 0.9rem;
+}
+
+.settings-switch-row { justify-content: space-between; }
+
+.settings-switch {
+  width: 2.4rem;
+  height: 1.35rem;
+  accent-color: var(--color-gold);
   cursor: pointer;
 }
 
-.pending-result-button.selected {
-  background: #dba233;
-  color: #241505;
-  border-color: #f1e6c8;
+.settings-face-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
-/* ---------- Piece selection info (Phase 4) ---------- */
-#piece-selection-info {
-  position: fixed;
-  top: 1rem;
-  right: 1rem;
+.settings-face-row-label {
   font-size: 0.85rem;
-  color: #d8cdb8;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  max-width: 260px;
-  text-align: right;
+  color: var(--color-beige);
+  min-width: 84px;
 }
 
-/* ---------- Move outcome: catch / stack readout (Phase 6) ---------- */
-#move-outcome {
-  position: fixed;
-  top: 3.6rem;
-  right: 1rem;
-  font-size: 0.85rem;
-  font-weight: bold;
-  color: #dba233;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-  max-width: 260px;
-  text-align: right;
-  min-height: 1.2em;
+.settings-face-swatches {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
+.face-option {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 50%;
+  border: 2px solid var(--color-beige-wood);
+  background: rgba(0, 0, 0, 0.35);
+  font-size: 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+.face-option:hover { border-color: var(--color-gold); }
+.face-option.selected {
+  border-color: var(--color-gold);
+  background: var(--color-gold-soft);
+  box-shadow: 0 0 0 2px var(--color-gold);
+}
+
+#settings-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* ---------- Developer test panel (DEBUG_MODE only, see main.js) ---------- */
 #debug-panel {
   position: fixed;
-  top: 1rem;
+  top: 4.75rem;
   left: 1rem;
+  z-index: 5;
   display: flex;
   flex-direction: column;
   gap: 0.4rem;
@@ -211,34 +539,9 @@ html, body {
   color: #ff9d9d;
   cursor: pointer;
 }
+.debug-force-button:hover { background: #ff5c5c; color: #1a0505; }
 
-.debug-force-button:hover {
-  background: #ff5c5c;
-  color: #1a0505;
-}
-
-/* ---------- Restart control (Phase 7) ---------- */
-#restart-button {
-  position: fixed;
-  top: 1rem;
-  left: 1rem;
-  padding: 0.5rem 1rem;
-  font-size: 0.9rem;
-  font-weight: bold;
-  border: 2px solid #dac48e;
-  border-radius: 0.4rem;
-  background: rgba(20, 15, 5, 0.75);
-  color: #f1e6c8;
-  cursor: pointer;
-  z-index: 5;
-}
-
-#restart-button:hover {
-  background: rgba(219, 162, 51, 0.85);
-  color: #241505;
-}
-
-/* ---------- Restart confirmation (Phase 7) ---------- */
+/* ---------- New-game confirmation ---------- */
 #restart-confirm {
   position: fixed;
   inset: 0;
@@ -276,17 +579,17 @@ html, body {
 
 #restart-confirm-yes {
   border: none;
-  background: #a4322a;
-  color: #f1e6c8;
+  background: var(--color-maroon);
+  color: var(--color-beige);
 }
 
 #restart-confirm-cancel {
-  border: 2px solid #dac48e;
+  border: 2px solid var(--color-beige-wood);
   background: transparent;
-  color: #f1e6c8;
+  color: var(--color-beige);
 }
 
-/* ---------- Winner banner (Phase 7) ---------- */
+/* ---------- Winner banner ---------- */
 #winner-banner {
   position: fixed;
   inset: 0;
@@ -304,17 +607,12 @@ html, body {
 #winner-banner-text {
   font-size: 2.25rem;
   font-weight: bold;
-  color: #dba233; /* fallback; overridden by the .player-blue/.player-red team color below */
+  color: var(--color-gold); /* fallback; overridden by the .player-blue/.player-red team color below */
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
 }
 
-#winner-banner-text.player-blue {
-  color: #6f9bff; /* lighter than the piece's own blue, for contrast against the dark overlay */
-}
-
-#winner-banner-text.player-red {
-  color: #ff8f7f; /* lighter than the piece's own red, for contrast against the dark overlay */
-}
+#winner-banner-text.player-blue { color: var(--color-blue-light); }
+#winner-banner-text.player-red { color: var(--color-red-light); }
 
 #new-game-button {
   padding: 0.75rem 1.75rem;
@@ -322,37 +620,12 @@ html, body {
   font-weight: bold;
   border: none;
   border-radius: 0.5rem;
-  background: #dba233;
-  color: #241505;
+  background: var(--color-gold);
+  color: var(--color-brown-dark);
   cursor: pointer;
 }
 
-/* ---------- Game log (Phase 7) ---------- */
-#game-log {
-  position: fixed;
-  bottom: 1rem;
-  left: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  max-width: 260px;
-  max-height: 9rem;
-  overflow-y: auto;
-  font-size: 0.75rem;
-  color: #d8cdb8;
-  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
-}
-
-.game-log-entry {
-  opacity: 0.85;
-}
-
-.game-log-entry:first-child {
-  opacity: 1;
-  font-weight: bold;
-}
-
-/* ---------- Setup screen ---------- */
+/* ---------- Setup screen (placeholder, see ui.js showSetupScreen) ---------- */
 #setup-screen {
   position: fixed;
   inset: 0;
@@ -361,4 +634,35 @@ html, body {
   justify-content: center;
   background: rgba(0, 0, 0, 0.6);
   z-index: 10;
+}
+
+/* ==========================================================================
+   Responsive — narrower top/bottom panels on tablet/mobile widths so the
+   3D board keeps most of the viewport
+   ========================================================================== */
+@media (max-width: 700px) {
+  #top-bar {
+    padding: 0.45rem 0.6rem;
+  }
+  #game-title { font-size: 1rem; }
+  .team-status { min-width: 92px; padding: 0.22rem 0.5rem; }
+  .team-status-name { font-size: 0.78rem; }
+  .team-status-summary { font-size: 0.62rem; }
+  #top-bar-controls { gap: 0.35rem; }
+  .icon-button { width: 2rem; height: 2rem; font-size: 0.95rem; }
+  #new-game-top-button { padding: 0.4rem 0.7rem; font-size: 0.78rem; }
+  #language-toggle-button { font-size: 0.72rem; padding: 0 0.5rem; }
+
+  #bottom-panel { padding: 0.5rem 0.6rem 0.7rem; max-height: 52vh; gap: 0.22rem; }
+  #current-player { font-size: 1rem; }
+  #current-action { font-size: 0.82rem; }
+  #throw-button { padding: 0.55rem 1.2rem; font-size: 0.95rem; }
+  #instructions-line { font-size: 0.65rem; }
+
+  #settings-panel { padding: 1rem; }
+}
+
+@media (max-width: 420px) {
+  #top-bar-teams { gap: 0.4rem; }
+  .team-status { min-width: 76px; }
 }

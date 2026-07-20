@@ -32,29 +32,37 @@ import {
   BACK_DO_STICK_INDEX,
 } from "./gameLogic.js";
 import {
-  renderThrowControls,
+  FACE_OPTIONS,
+  renderTopBar,
+  updateTopBarStaticText,
+  updateTeamStatus,
+  renderBottomPanel,
   setThrowButtonEnabled,
+  updateThrowButtonLabel,
+  setCurrentActionText,
+  updateCurrentPlayer,
   updateThrowResult,
   updatePendingResultsReadout,
-  renderDebugPanel,
-  renderPieceSelectionPanel,
-  updatePieceSelectionDisplay,
-  renderPendingResultSelector,
   updatePendingResultSelector,
-  renderTurnIndicator,
-  updateTurnIndicator,
-  renderMoveOutcomePanel,
+  updatePieceSelectionDisplay,
   updateMoveOutcome,
+  updateInstructionsLine,
+  resetHudReadouts,
+  renderDebugPanel,
   renderWinnerBanner,
   showWinnerBanner,
   hideWinnerBanner,
-  renderRestartControl,
   renderRestartConfirm,
   showRestartConfirm,
   hideRestartConfirm,
-  resetHudReadouts,
   renderGameLogPanel,
+  updateGameLogToggleText,
   updateGameLog,
+  renderSettingsModal,
+  updateSettingsModalText,
+  showSettingsModal,
+  hideSettingsModal,
+  updateFaceSelection,
 } from "./ui.js";
 import { t, throwResultLabel } from "./i18n.js";
 
@@ -424,15 +432,16 @@ try {
       // use) is forfeited immediately rather than blocking the game
       // (PRD.md §5).
       const forfeited = pruneUnusableResults(throwSession, currentPlayer(gameState).pieces);
-      updateThrowResult(result, throwSession, forfeited);
+      updateThrowResult(result, throwSession, gameState.settings.language, forfeited);
       updateGameLog(gameState.log);
+      playPlaceholderSound("throw-sticks");
       isThrowAnimating = false;
 
       if (!throwSession.chainActive && throwSession.pendingResults.length > 0) {
         selectedResultIndex = 0; // auto-select so a single pending result "just works"
       }
-      refreshPendingResultUI();
       handleTurnSettlement();
+      refreshHud();
     });
   }
 
@@ -442,8 +451,6 @@ try {
     // sticks the player sees settle are always the exact same stickStates.
     processThrowResult(throwSticks());
   }
-
-  renderThrowControls({ onThrowClick: handleThrowClick });
 
   // Developer test panel: only ever rendered when DEBUG_MODE is true (see
   // the constant's declaration at the top of this file for how to turn it
@@ -656,9 +663,9 @@ try {
     // but the throw button's disabled attribute is only ever set explicitly,
     // not re-derived every frame, so once the last knockback lands it needs
     // an explicit refresh or the button would stay disabled with nothing
-    // left to wait for (refreshPendingResultUI is declared later in this
-    // file but hoisted, since it's a function declaration).
-    if (knockbackAnimations.length === 0) refreshPendingResultUI();
+    // left to wait for (refreshHud is declared later in this file but
+    // hoisted, since it's a function declaration).
+    if (knockbackAnimations.length === 0) refreshHud();
   }
 
   function stackOffsetXZ(indexInGroup, groupSize) {
@@ -697,6 +704,8 @@ try {
 
   // ---------- Turn / pending-result state ----------
   let selectedResultIndex = null;
+  let settingsModalOpen = false;
+  let restartConfirmVisible = false;
 
   function canThrowNow() {
     if (gameState.turnPhase === "GAME_OVER") return false;
@@ -714,20 +723,84 @@ try {
   // chain has settled — PRD.md "do not allow movement until all bonus
   // throws have been completed".
   function refreshPendingResultUI() {
-    updatePendingResultSelector(throwSession.chainActive ? [] : throwSession.pendingResults, selectedResultIndex, (index) => {
+    const language = gameState.settings.language;
+    updatePendingResultSelector(throwSession.chainActive ? [] : throwSession.pendingResults, selectedResultIndex, language, (index) => {
       selectedResultIndex = index;
-      refreshPendingResultUI();
+      refreshHud();
     });
     setThrowButtonEnabled(canThrowNow());
+  }
+
+  /**
+   * Sums up a player's pieces by state, for their top-bar team-status block.
+   * @param {import('./gameLogic.js').Piece[]} pieces
+   */
+  function teamPieceCounts(pieces) {
+    return {
+      waiting: pieces.filter((p) => p.state === PieceState.WAITING).length,
+      active: pieces.filter((p) => p.state === PieceState.ACTIVE).length,
+      home: pieces.filter((p) => p.state === PieceState.HOME).length,
+    };
+  }
+
+  /** The "what to do right now" line shown in the bottom panel (PRD.md's reference-game brief). */
+  function computeCurrentActionText() {
+    const language = gameState.settings.language;
+    if (gameState.turnPhase === "GAME_OVER") {
+      const winner = gameState.players.find((player) => player.id === gameState.winner);
+      return t(language, "actionGameOver")(winner.nickname || winner.id);
+    }
+    if (throwSession.chainActive) return t(language, "actionThrowBonus");
+    if (throwSession.pendingResults.length === 0) return t(language, "actionThrow");
+    if (selectedResultIndex === null) return t(language, "actionSelectResult");
+    return t(language, "actionSelectPiece");
+  }
+
+  /**
+   * The single place that re-renders every HUD element whose text depends on
+   * general game/settings state (as opposed to one-off event readouts like
+   * "just caught X" — those are set directly at their own call sites). Safe
+   * to call liberally: every language toggle, turn change, selection change,
+   * and settings change routes through here so nothing can go stale in one
+   * language but not the other.
+   */
+  function refreshHud() {
+    const language = gameState.settings.language;
+    updateTopBarStaticText(language, gameState.settings.soundEnabled);
+
+    for (const player of gameState.players) {
+      const isHighlighted =
+        gameState.turnPhase === "GAME_OVER" ? player.id === gameState.winner : player.id === currentPlayer(gameState).id;
+      updateTeamStatus(player.id, { nickname: player.nickname || player.id, ...teamPieceCounts(player.pieces) }, language, isHighlighted);
+    }
+
+    updateCurrentPlayer(currentPlayer(gameState), language);
+    updateThrowButtonLabel(language);
+    setCurrentActionText(computeCurrentActionText());
+    updateInstructionsLine(language);
+    updateGameLogToggleText(language);
+
+    const selectedEntry = selectedPieceId ? pieceEntriesById.get(selectedPieceId) : null;
+    updatePieceSelectionDisplay(
+      selectedEntry ? selectedEntry.piece : null,
+      language,
+      selectedEntry ? stackMembers(selectedEntry.piece, gameState.players.flatMap((p) => p.pieces)).length : 1
+    );
+
+    refreshPendingResultUI();
+
+    if (settingsModalOpen) updateSettingsModalText(language);
+    if (gameState.turnPhase === "GAME_OVER") {
+      const winner = gameState.players.find((player) => player.id === gameState.winner);
+      showWinnerBanner(winner.nickname || winner.id, winner.id, language);
+    }
+    if (restartConfirmVisible) showRestartConfirm(language);
   }
 
   function handleTurnSettlement() {
     if (maybeSwitchTurn(gameState, throwSession)) {
       selectedPieceId = null;
       selectedResultIndex = null;
-      updatePieceSelectionDisplay(null);
-      updateTurnIndicator(currentPlayer(gameState), gameState.settings.language);
-      refreshPendingResultUI();
     }
   }
 
@@ -789,15 +862,15 @@ try {
   function handleGameOver() {
     isMoveAnimating = false;
     setThrowButtonEnabled(false);
-    updatePendingResultSelector([], null, () => {});
-    updatePendingResultsReadout(throwSession, []);
+    updatePendingResultSelector([], null, gameState.settings.language, () => {});
+    updatePendingResultsReadout(throwSession, gameState.settings.language, []);
     startVictoryEffect(gameState.winner);
     const winnerPlayer = gameState.players.find((player) => player.id === gameState.winner);
     const winnerName = winnerPlayer.nickname || winnerPlayer.id;
-    showWinnerBanner(winnerName, gameState.winner, gameState.settings.language);
     logEvent(gameState, t(gameState.settings.language, "logWon")(winnerName));
     updateGameLog(gameState.log);
     playPlaceholderSound("victory-fanfare");
+    refreshHud(); // shows the winner banner (turnPhase is already GAME_OVER) and the "X has won" action line
   }
 
   /**
@@ -807,10 +880,12 @@ try {
    * to load/play a file that doesn't exist (which would 404 in the
    * console). Swap the body for a real Audio()/WebAudio call once
    * assets/sounds/ has real files — the call site (handleGameOver) is
-   * already wired up.
+   * already wired up. Gated on the sound-toggle setting (top bar/settings
+   * modal) so muting actually silences it once real playback exists.
    * @param {string} soundName
    */
   function playPlaceholderSound(soundName) {
+    if (!gameState.settings.soundEnabled) return;
     console.info(`[sound placeholder] would play: ${soundName}`);
   }
 
@@ -853,27 +928,31 @@ try {
     resetVictoryEffect();
 
     hideWinnerBanner();
+    restartConfirmVisible = false;
     hideRestartConfirm();
     resetHudReadouts();
-    updateTurnIndicator(currentPlayer(gameState), gameState.settings.language);
-    refreshPendingResultUI();
+    refreshHud();
   }
 
-  function handleRestartClick() {
+  function handleNewGameClick() {
     if (isRestartSafeWithoutConfirm()) {
       performRestart();
     } else {
+      restartConfirmVisible = true;
       showRestartConfirm(gameState.settings.language);
     }
   }
 
-  renderRestartControl({ onRestartClick: handleRestartClick });
   renderRestartConfirm({
     onConfirm: () => {
+      restartConfirmVisible = false;
       hideRestartConfirm();
       performRestart();
     },
-    onCancel: hideRestartConfirm,
+    onCancel: () => {
+      restartConfirmVisible = false;
+      hideRestartConfirm();
+    },
   });
   renderWinnerBanner({ onNewGame: performRestart });
 
@@ -921,14 +1000,14 @@ try {
   function selectOrMovePiece(pieceId) {
     if (!pieceId) {
       selectedPieceId = null;
-      updatePieceSelectionDisplay(null);
+      refreshHud();
       return;
     }
 
     const entry = pieceEntriesById.get(pieceId);
     const allPiecesNow = gameState.players.flatMap((p) => p.pieces);
     selectedPieceId = pieceId; // always usable to inspect a piece, own or opponent's
-    updatePieceSelectionDisplay(entry.piece, stackMembers(entry.piece, allPiecesNow).length);
+    refreshHud();
 
     if (!isPieceMovableNow(entry.piece)) return;
 
@@ -953,7 +1032,6 @@ try {
       throwSession.pendingResults.splice(resultIndex, 1); // consume exactly the result that was used
       selectedResultIndex = null;
       selectedPieceId = null;
-      updatePieceSelectionDisplay(null);
 
       // Caught opponent piece(s) fly back to their own waiting slot from
       // wherever they're currently rendered — a knock-back animation
@@ -976,6 +1054,7 @@ try {
           gameState,
           t(gameState.settings.language, "logCaught")(moverNickname, victimNickname, outcome.caughtPieceIds.length)
         );
+        playPlaceholderSound("catch");
       } else if (outcome.stackedPieceIds.length > 0) {
         logEvent(gameState, t(gameState.settings.language, "logStacked")(moverNickname, outcome.stackedPieceIds.length));
       }
@@ -999,12 +1078,12 @@ try {
       }
 
       const forfeited = pruneUnusableResults(throwSession, currentPlayer(gameState).pieces);
-      updatePendingResultsReadout(throwSession, forfeited);
+      updatePendingResultsReadout(throwSession, gameState.settings.language, forfeited);
       if (!throwSession.chainActive && throwSession.pendingResults.length > 0) {
         selectedResultIndex = 0; // auto-select so a single remaining result "just works"
       }
-      refreshPendingResultUI();
       handleTurnSettlement();
+      refreshHud();
     });
   }
 
@@ -1012,12 +1091,88 @@ try {
     selectOrMovePiece(pieceIdFromPointerEvent(event));
   });
 
-  renderPieceSelectionPanel();
-  renderMoveOutcomePanel();
-  renderPendingResultSelector();
-  renderTurnIndicator();
+  // ---------- Piece face textures (settings modal, "character or face selection") ----------
+  // No external face art exists yet (see pieces/README.md) — each face option
+  // is a small emoji drawn onto a canvas and applied as the top-cap texture
+  // (CylinderGeometry's material group 1; see createPieceMesh's comment).
+  // Cached by faceId so switching back and forth never re-draws the canvas.
+  const faceTextureCache = new Map();
+  function getFaceTexture(faceId) {
+    if (faceTextureCache.has(faceId)) return faceTextureCache.get(faceId);
+    const option = FACE_OPTIONS.find((f) => f.id === faceId);
+    const canvasEl = document.createElement("canvas");
+    canvasEl.width = 128;
+    canvasEl.height = 128;
+    const ctx = canvasEl.getContext("2d");
+    ctx.fillStyle = "#f1e6c8";
+    ctx.fillRect(0, 0, 128, 128);
+    ctx.font = "84px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(option ? option.emoji : "", 64, 70);
+    const texture = new THREE.CanvasTexture(canvasEl);
+    texture.needsUpdate = true;
+    faceTextureCache.set(faceId, texture);
+    return texture;
+  }
+
+  /** Applies faceId's texture to every current-and-future-rendered piece of playerId's top cap. */
+  function applyFaceTexture(playerId, faceId) {
+    const texture = getFaceTexture(faceId);
+    for (const { piece, mesh } of pieceEntriesById.values()) {
+      if (piece.player !== playerId) continue;
+      const topMaterial = mesh.material[1];
+      topMaterial.map = texture;
+      topMaterial.color.set(0xffffff); // let the texture (beige + emoji) show through untinted
+      topMaterial.needsUpdate = true;
+    }
+  }
+
+  // ---------- Sound / language / settings ----------
+  function setSoundEnabled(enabled) {
+    gameState.settings.soundEnabled = enabled;
+    refreshHud();
+  }
+
+  function setLanguage(language) {
+    gameState.settings.language = language;
+    refreshHud();
+  }
+
+  function handleNicknameChange(playerId, value) {
+    gameState.players.find((player) => player.id === playerId).nickname = value;
+    refreshHud();
+  }
+
+  function handleFaceChange(playerId, faceId) {
+    gameState.players.find((player) => player.id === playerId).faceId = faceId;
+    updateFaceSelection(playerId, faceId);
+    applyFaceTexture(playerId, faceId);
+  }
+
+  renderTopBar({
+    onSoundToggle: () => setSoundEnabled(!gameState.settings.soundEnabled),
+    onLanguageToggle: () => setLanguage(gameState.settings.language === "en" ? "ko" : "en"),
+    onSettingsClick: () => {
+      settingsModalOpen = true;
+      showSettingsModal(gameState);
+    },
+    onNewGameClick: handleNewGameClick,
+  });
+  renderBottomPanel({ onThrowClick: handleThrowClick });
   renderGameLogPanel();
-  updateTurnIndicator(currentPlayer(gameState), gameState.settings.language);
+  renderSettingsModal({
+    onClose: () => {
+      settingsModalOpen = false;
+      hideSettingsModal();
+    },
+    onNicknameChange: handleNicknameChange,
+    onSoundChange: setSoundEnabled,
+    onLanguageChange: setLanguage,
+    onFaceChange: handleFaceChange,
+  });
+
+  refreshHud();
 
   function updatePieceVisuals(now) {
     const legalPulse = PIECE_LEGAL_GLOW_BASE + PIECE_LEGAL_GLOW_AMPLITUDE * (0.5 + 0.5 * Math.sin(now * 0.003));

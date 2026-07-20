@@ -54,6 +54,7 @@ export function createInitialState(options = {}) {
     settings: {
       language: options.language ?? "en",
       aiEnabled: false,
+      soundEnabled: true,
     },
     players: [
       { id: "blue", nickname: nicknameBlue, faceId: null, isAI: false, pieces: makeStartingPieces("blue") },
