@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Yutnori — Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Gowun+Batang:wght@400;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <div class="modalSeal">윷</div>
+    <div class="modalTitle" id="modalTitle">Player 1 Wins!</div>
+    <div class="modalSub" id="modalSub">All 4 pieces reached Home</div>
+    <button class="modalBtn" id="modalNewGameBtn">↻ Play Again</button>
+  </div>
+</div>
+
+<div class="stage">
+  <div class="titleblock">
+    <div class="seal">윷</div>
+    <h1>Yutnori</h1>
+  </div>
+
+  <div class="modeRow">
+    <label class="modeOpt"><input type="radio" name="mode" value="2p" checked> 2 Player</label>
+    <label class="modeOpt"><input type="radio" name="mode" value="ai"> vs AI</label>
+    <select id="aiDifficultySelect" disabled>
+      <option value="easy">Easy</option>
+      <option value="medium" selected>Medium</option>
+      <option value="hard">Hard</option>
+    </select>
+    <button id="resetBtn" class="resetBtn" title="New game">↻ New Game</button>
+    <button id="soundBtn" class="iconBtn" title="Toggle sound">🔊</button>
+    <button id="rulesBtn" class="iconBtn" title="How to play">❓ Rules</button>
+  </div>
+
+  <!-- FLOATING Rules panel -->
+  <div class="rulesPanel" id="rulesPanel">
+    <b>How to play</b>
+    <ul>
+      <li>Throw the sticks each turn — Do (1), Gae (2), Geol (3), Yut (4 ★), Mo (5 ★). ★ throws earn another go.</li>
+      <li>Bring a new piece in from Start, or move one already on the board.</li>
+      <li>Land on your own piece(s) to stack — they move together from then on.</li>
+      <li>Land on a rival to send its whole stack back to Start and earn an extra throw.</li>
+      <li>★ corners and the center are shortcut junctions — cutting through gets you Home faster.</li>
+      <li>Back-Do (optional rule) moves a board piece backward one step.</li>
+      <li>First player to bring all 4 pieces Home wins.</li>
+    </ul>
+    <button class="resetBtn" style="margin-top: 10px; width: 100%;" onclick="document.getElementById('rulesPanel').classList.remove('open')">Close Rules</button>
+  </div>
+
+  <div class="turnbanner" id="turnBanner">Player 1's turn</div>
+
+  <div class="gameArea">
+    <div class="leftSide">
+      <div class="playerRow">
+        <div class="playerCard" id="playerCard0" data-player="0">
+          <div class="pname">
+            <i class="swatch" style="background:var(--red)"></i>
+            Player 1
+          </div>
+          <div class="tokens" id="tray0"></div>
+          <div class="home">Home: <span id="home0">0</span>/4</div>
+        </div>
+
+        <div class="playerCard" id="playerCard1" data-player="1">
+          <div class="pname">
+            <i class="swatch" style="background:var(--blue)"></i>
+            <span id="p2name">Player 2</span>
+          </div>
+          <div class="tokens" id="tray1"></div>
+          <div class="home">Home: <span id="home1">0</span>/4</div>
+        </div>
+      </div>
+
+      <div class="frame">
+        <div class="board-wrap" id="boardWrap">
+          <svg class="lines" id="lines"></svg>
+          <div id="piecesLayer"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rightSide">
+      <div class="stickpanel">
+        <div class="tray" id="tray"></div>
+        
+        <div class="controls">
+          <button class="throwBtn" id="throwBtn">Throw Sticks</button>
+          <label class="toggle">
+            <input type="checkbox" id="backDoToggle"> Back-Do
+          </label>
+        </div>
+
+        <div class="result" id="result">
+          <div class="name">—</div>
+          <div class="meta">Throw the sticks to begin</div>
+        </div>
+
+        <div class="moveprompt" id="movePrompt"></div>
+        <div class="history" id="history"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot corner"></i>Corner</span>
+    <span><i class="dot edge"></i>Outer Path</span>
+    <span><i class="dot diag"></i>Shortcut</span>
+    <span><i class="dot center"></i>Center</span>
+  </div>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
